@@ -11,7 +11,6 @@ import typer
 
 from debugwand.types import PodInfo, ProcessInfo
 
-# Kubernetes constants
 _KNATIVE_SERVICE_LABEL = "serving.knative.dev/service"
 
 
@@ -310,6 +309,20 @@ def get_and_select_process(pod: PodInfo, pid: int | None) -> int:
 
 def get_and_select_process_handler(pod: PodInfo, pid: int | None) -> int:
     try:
+        # Import here to avoid circular dependency
+        from debugwand.ui import print_reload_mode_warning
+
+        # Get processes to check for reload mode
+        processes = list_python_processes_with_details(pod)
+        if not processes:
+            raise ValueError("No Python processes found in the selected pod.")
+
+        # Check for reload mode and show warning if detected
+        is_reload, worker_proc = detect_reload_mode(processes)
+        if is_reload and worker_proc and not pid:
+            print_reload_mode_warning(worker_proc.pid, parent_pid=1)
+
+        # Now do the actual selection
         selected_pid = get_and_select_process(pod, pid)
         return selected_pid
     except ValueError as e:

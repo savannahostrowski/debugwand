@@ -1,6 +1,6 @@
 # debugwand 🪄
 
-A zero-preparation remote debugger for Python applications running in Kubernetes.
+A zero-preparation remote debugger for Python applications running in local Kubernetes clusters.
 
 *Made possible by the Python 3.14 [remote debugging attachment protocol](https://docs.python.org/3/howto/remote_debugging.html) and [debugpy](https://github.com/microsoft/debugpy)*
 
@@ -9,7 +9,7 @@ A zero-preparation remote debugger for Python applications running in Kubernetes
 ## Features
 
 - **Zero-preparation debugging** - No code changes or restarts required
-- **Full breakpoint debugging** - Using debugpy
+- **Full breakpoint debugging** - Using `debugpy`
 - **Kubernetes-native** - Handles pod discovery, service routing, and Knative
 - **Process selection** - Interactive selection with CPU/memory metrics
 - **Script execution** - Run arbitrary Python code in remote processes
@@ -35,11 +35,11 @@ wand debug -n my-namespace -s my-service
 
 This will:
 1. Find pods for the service
-2. Show Python processes with CPU/memory usage
-3. Let you select which process to debug
-4. Inject `debugpy` into the process
-5. Automatically port-forward to your local machine
-6. Show connection instructions for your editor
+2. Let you select which process to debug
+3. Inject `debugpy` into the process
+4. Automatically port-forward to your local machine
+
+![](debug.png)
 
 ### 3. Connect your editor
 
@@ -69,19 +69,6 @@ This will:
 ```
 
 **Neovim/Other DAP clients**: Connect to `localhost:5679`
-
-
-## How It Works
-
-`debugwand` uses Python 3.14+'s remote debugging attachment protocol:
-
-1. **Discover** - Finds pods via Kubernetes API (supports Knative services)
-2. **Select** - Shows Python processes with CPU/memory metrics
-3. **Inject** - Uses `sys.remote_exec()` to inject code into the target process
-4. **Debug** - Starts debugpy server in the target process
-5. **Connect** - Editor attaches via DAP protocol for full debugging
-
-The target process continues running normally - your injected code executes asynchronously at the next safe opportunity (similar to signal handlers).
 
 ## Requirements
 
@@ -123,24 +110,12 @@ The target pod doesn't have debugpy installed. Add debugpy to your application d
 
 ```
 ⚠️  RELOAD MODE DETECTED
-Auto-selecting worker process: PID 145
+Auto-selecting worker process: PID <pid>
 ```
 
-**Path mappings:** Ensure your `launch.json` maps local to remote paths correctly:
+**Path mappings:** Ensure your `launch.json` maps local to remote paths correctly.
 
-```json
-{
-  "pathMappings": [
-    {
-      "localRoot": "${workspaceFolder}/backend/app",
-      "remoteRoot": "/app/backend/app"
-    }
-  ]
-}
-```
-
-**Multiple pods:** If you have multiple replicas, requests may be load-balanced to a different pod than the one you're debugging. 
-Consider scaling down to a single replica during debugging.
+**Multiple pods:** If you have multiple replicas, requests may be load-balanced to a different pod than the one you're debugging. Consider scaling down to a single replica during debugging.
 
 ## Architecture
 
