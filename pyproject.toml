@@ -1,0 +1,77 @@
+[project]
+name = "debugwand"
+dynamic=["version"]
+description = "A CLI for connecting your debugger to live Python processes running in Kubernetes pods."
+readme = "README.md"
+requires-python = ">=3.14.0"
+dependencies = [
+    "dataclasses>=0.8",
+    "debugpy>=1.8.17",
+    "pyright>=1.1.407",
+    "typer>=0.20.0",
+]
+keywords=["debugging", "debugger", "kubernetes"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Monitoring",
+    "Topic :: Utilities",
+]
+
+[project.urls]
+Homepage = "https://github.com/savannahostrowski/debugwand"
+Repository = "https://github.com/savannahostrowski/debugwand"
+Issues = "https://github.com/savannahostrowski/debugwand/issues"
+
+[project.scripts]
+wand = "debugwand.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatchling.build.targets.wheel]
+# Only include the debugwand package
+packages = ["debugwand"]
+
+[tool.hatchling.build.targets.sdist]
+exclude = [
+    "/.python-version",
+    "/uv.lock",
+]
+
+[tool.hatch.version]
+path = "debugwand/__init__.py"
+
+[tool.pyright]
+include = ["debugwand"]
+typeCheckingMode = "strict"
+pythonVersion = "3.13"
+reportMissingTypeStubs = false
+
+[tool.ruff]
+fix = true
+
+[tool.ruff.lint]
+select = ["I"]  # Enable isort rules for import sorting
+
+[tool.ruff.lint.per-file-ignores]
+"debugwand/debugpy_template.py" = ["F821"]  # Template file with placeholder variables
+
+[tool.setuptools]
+packages = ["debugwand"]
+
+[tool.uv]
+package = true
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]

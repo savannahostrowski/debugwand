@@ -1,0 +1,28 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      # Run the linter
+      - id: ruff
+        args: [--fix]
+        files: '^mantis/.*\.py$'
+      # Run the formatter
+      - id: ruff-format
+        files: '^mantis/.*\.py$'
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: uv run --frozen --group dev pytest
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]
+      - id: pyright
+        name: pyright
+        entry: uv run pyright mantis/
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [commit]
