@@ -27,6 +27,10 @@ uv.lock
 # Ruff
 .ruff_cache/
 
+# Pytest
+.pytest_cache/
+.coverage
+
 # OS
 .DS_Store
 *.log
