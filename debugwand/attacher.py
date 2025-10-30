@@ -25,8 +25,10 @@ def main():
     print(f"Attaching to PID {pid} to inject script {script}...")
 
     try:
-        sys.remote_exec(args.pid, args.script)  # type: ignore  # New in Python 3.14, no stubs yet
-        print("Script injected successfully.")
+        # Use sys.remote_exec to inject the script into the target process
+        # New in Python 3.14, no stubs yet
+        # https://docs.python.org/3/library/sys.html#sys.remote_exec
+        sys.remote_exec(args.pid, args.script)  # type: ignore
 
     except AttributeError as e:
         print(f"ERROR: sys.remote_exec not available: {e}")

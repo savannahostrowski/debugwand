@@ -1,36 +1,24 @@
 # debugwand 🪄
 
-A (very experimental) basic CLI for connecting your debugger to live Python processes running in Kubernetes.
+A zero-preparation remote debugger for Python applications running in Kubernetes.
 
-Built on Python 3.14+'s [remote debugging attachment protocol](https://docs.python.org/3/howto/remote_debugging.html) and [debugpy](https://github.com/microsoft/debugpy)
+*Made possible by the Python 3.14 [remote debugging attachment protocol](https://docs.python.org/3/howto/remote_debugging.html) and [debugpy](https://github.com/microsoft/debugpy)*
 
-> Note: debugwand is experimental and not made for production. Use at your own risk.
+> Note: `debugwand` is experimental and not made for production. Use at your own risk.
 
 ## Features
 
 - **Zero-preparation debugging** - No code changes or restarts required
-- **Live process injection** - Attach to running production processes
 - **Full breakpoint debugging** - Using debugpy
 - **Kubernetes-native** - Handles pod discovery, service routing, and Knative
 - **Process selection** - Interactive selection with CPU/memory metrics
 - **Script execution** - Run arbitrary Python code in remote processes
-
-## Configuration
-
-You must have `SYS_PTRACE` capability enabled on target containers. This is a requirement of the [remote debugger attachment protocol](https://docs.python.org/3/howto/remote_debugging.html). You can validate your setup with:
-
-```bash
-uv run wand validate -n <namespace> -s <service>
-```
-
-TBD
 
 ## Quick Start
 
 ### 1. List pods and processes
 
 ```bash
-
 # List pods for a specific service
 wand pods -n my-namespace -s my-service
 
@@ -40,23 +28,16 @@ wand pods -n my-namespace -s my-service --with-pids
 
 ### 2. Debug a live process
 
+To start a debugging session, run:
 ```bash
 wand debug -n my-namespace -s my-service
-
-Options:
-  -n, --namespace TEXT        Kubernetes namespace
-  -s, --service TEXT          Service name
-  -p, --port INTEGER = 5679   Debug server port
-  --auto-forward / --no-auto-forward
-                              Automatically start kubectl port-forward (default: true)
-  --pid, --pid INTEGER          Process ID to attach to (optional)
 ```
 
 This will:
 1. Find pods for the service
 2. Show Python processes with CPU/memory usage
 3. Let you select which process to debug
-4. Inject debugpy into the process
+4. Inject `debugpy` into the process
 5. Automatically port-forward to your local machine
 6. Show connection instructions for your editor
 
@@ -92,7 +73,7 @@ This will:
 
 ## How It Works
 
-debugwand uses Python 3.13+'s remote debugging attachment protocol:
+`debugwand` uses Python 3.14+'s remote debugging attachment protocol:
 
 1. **Discover** - Finds pods via Kubernetes API (supports Knative services)
 2. **Select** - Shows Python processes with CPU/memory metrics
@@ -111,7 +92,6 @@ The target process continues running normally - your injected code executes asyn
 ### Target Pods
 - **Python 3.14+** runtime
 - **debugpy** installed in the container (for `debug` command)
-- **CAP_SYS_PTRACE** capability enabled (check with `wand validate`)
 
 
 ## Other notes
@@ -128,26 +108,7 @@ If a service has multiple pods, debugwand will prompt you to select one. Use the
 
 ### "No module named 'debugpy'"
 
-The target pod doesn't have debugpy installed. Either:
-1. Add debugpy to your application dependencies
-2. Use `wand exec` to install it: `pip install debugpy`
-
-### "Permission denied" or "Operation not permitted"
-
-The pod needs `SYS_PTRACE` capability. Check with:
-
-```bash
-wand validate -n <namespace> -s <service>
-```
-
-Add to your pod spec:
-
-```yaml
-securityContext:
-  capabilities:
-    add:
-      - SYS_PTRACE
-```
+The target pod doesn't have debugpy installed. Add debugpy to your application dependencies.
 
 ### Debugger won't attach
 
@@ -178,17 +139,8 @@ Auto-selecting worker process: PID 145
 }
 ```
 
-To find the correct remote path, check the debugwand output for:
-```
-[MANTIS] Process working directory: /app/backend
-```
-
-**Multiple pods:** If you have multiple replicas, requests may be load-balanced to a different pod than the one you're debugging. Scale down to 1 replica during debugging:
-
-```bash
-kubectl scale deployment <deployment-name> -n <namespace> --replicas=1
-```
-
+**Multiple pods:** If you have multiple replicas, requests may be load-balanced to a different pod than the one you're debugging. 
+Consider scaling down to a single replica during debugging.
 
 ## Architecture
 
@@ -196,7 +148,7 @@ kubectl scale deployment <deployment-name> -n <namespace> --replicas=1
 ┌─────────────────┐                    ┌──────────────────┐
 │  Local Machine  │                    │  Kubernetes Pod  │
 │                 │                    │                  │
-│  debugwand CLI     │◄───── kubectl ────►│   Python App     │
+│  debugwand CLI  │◄───── kubectl ────►│   Python App     │
 └────────┬────────┘                    └────────┬─────────┘
          │                                      │
          │ 1. Discover pods                     │
@@ -208,10 +160,12 @@ kubectl scale deployment <deployment-name> -n <namespace> --replicas=1
          │ 3. Select process (auto-detect       │
          │    reload mode and choose worker)    │
          │                                      │
-         │ 4. Inject debugpy via sys.remote_exec│
+         │4. Inject `debugpy script via         │
+         │  (`sys.remote_exec()`)               │
+         │                                      │
          ├─────────────────────────────────────►│
          │                                      │
-         │                   5. debugpy.listen()│
+         │                 5. `debugpy.listen()`│
          │                    ┌─────────────────┤
          │                    │                 │
          │ 6. Port-forward    │                 │
@@ -219,19 +173,12 @@ kubectl scale deployment <deployment-name> -n <namespace> --replicas=1
          │    localhost:5679  │                 │
          │                    └─────────────────┤
          │                                      │
-         │ 7. Connect VS Code                   │
+         │ 7. Connect editor                    │
          ├──────────────────────────────────────┤
          │         Debugging Session            │
          │◄────────────────────────────────────►│
          │                                      │
 ```
-
-## Contributing
-
-Contributions welcome! This project is built with:
-- [Typer](https://typer.tiangolo.com/) - CLI framework
-- [Rich](https://rich.readthedocs.io/) - Terminal formatting
-- Python 3.14+ remote debugging protocol
 
 ## License
 

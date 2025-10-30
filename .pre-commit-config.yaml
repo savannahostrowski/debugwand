@@ -5,23 +5,23 @@ repos:
       # Run the linter
       - id: ruff
         args: [--fix]
-        files: '^mantis/.*\.py$'
+        files: '^debugwand/.*\.py$'
       # Run the formatter
       - id: ruff-format
-        files: '^mantis/.*\.py$'
+        files: '^debugwand/.*\.py$'
 
   - repo: local
     hooks:
       - id: pytest
         name: pytest
-        entry: uv run --frozen --group dev pytest
+        entry: uv run --group dev pytest
         language: system
         pass_filenames: false
         always_run: true
         stages: [commit]
       - id: pyright
         name: pyright
-        entry: uv run pyright mantis/
+        entry: uv run pyright debugwand/
         language: system
         pass_filenames: false
         types: [python]

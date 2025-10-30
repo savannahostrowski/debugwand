@@ -3,7 +3,7 @@ import tempfile
 from typer.testing import CliRunner
 from unittest.mock import patch, MagicMock
 from debugwand.cli import app
-from debugwand.k8s import PodInfo, ProcessInfo
+from debugwand.types import PodInfo, ProcessInfo
 
 runner = CliRunner()
 
@@ -41,16 +41,16 @@ class TestPodsCommand:
 
         with patch('debugwand.cli.list_python_processes_with_details', return_value=[]) as mock_list_procs:
             result = runner.invoke(app, [
-                'pods', 
+                'pods',
                 '--namespace',
                 'default',
-                '--service', 
+                '--service',
                 'test-service',
                 '--with-pids']
                 )
 
-        assert result.exit_code == 0
-        assert "No Python processes found." in result.stderr
+        assert result.exit_code == 1
+        assert "No Python processes found" in result.stderr or "No running pods with Python processes found" in result.stderr
 
         mock_get_pods.assert_called_once_with(service='test-service', namespace='default')
         mock_list_procs.assert_called_once_with(mock_pod)
@@ -73,67 +73,29 @@ class TestPodsCommand:
             cpu_percent=0.5,
             mem_percent=1.2,
             command="python app.py"
-            
+
         )
 
         mock_get_pods.return_value = [mock_pod]
         mock_list_procs.return_value = [mock_process]
 
         result = runner.invoke(app, [
-            'pods', 
+            'pods',
             '--namespace',
             'default',
-            '--service', 
+            '--service',
             'test-service',
             '--with-pids']
             )
 
         assert result.exit_code == 0
-        assert "PID: 1234" in result.stdout
-        assert "User: root" in result.stdout
-        assert "CMD: python app.py" in result.stdout
+        # The output is now a Rich table, check for table contents
+        assert "1234" in result.stdout
+        assert "pod-1" in result.stdout
+        assert "python app.py" in result.stdout
 
         mock_get_pods.assert_called_once_with(service='test-service', namespace='default')
         mock_list_procs.assert_called_once_with(mock_pod)
-
-
-class TestValidateCommand:
-    """Tests for the 'validate' command."""
-    @patch('debugwand.cli.get_pods_for_service')
-    def test_validate_missing_namespace(self, mock_get_pods: MagicMock):
-        result = runner.invoke(app, [
-            'validate', 
-            '--service', 
-            'test-service']
-            )
-        assert result.exit_code == 1
-        assert "Error: --namespace is required." in result.stderr
-
-    @patch('debugwand.cli.get_pods_for_service')
-    def test_validate_missing_service(self, mock_get_pods: MagicMock):
-        result = runner.invoke(app, [
-            'validate', 
-            '--namespace', 
-            'default']
-            )
-        assert result.exit_code == 1
-        assert "Error: --service is required." in result.stderr
-
-    @patch('debugwand.cli.get_pods_for_service')
-    def test_validate_no_pods_found(self, mock_get_pods: MagicMock):
-        mock_get_pods.return_value = []
-        result = runner.invoke(app, [
-            'validate', 
-            '--namespace',
-            'default',
-            '--service', 
-            'test-service']
-            )
-        assert result.exit_code == 1
-        assert "No pods found" in result.stderr
-
-        mock_get_pods.assert_called_once_with(service='test-service', namespace='default')
-
 
 class TestInjectCommand:
     """Tests for the 'inject' command."""

@@ -8,6 +8,7 @@ dependencies = [
     "dataclasses>=0.8",
     "debugpy>=1.8.17",
     "pyright>=1.1.407",
+    "rich>=13.9.4",
     "typer>=0.20.0",
 ]
 keywords=["debugging", "debugger", "kubernetes"]

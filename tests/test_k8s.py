@@ -2,7 +2,7 @@
 import json
 from unittest.mock import MagicMock, patch
 import pytest
-from debugwand.k8s import (
+from debugwand.operations import (
     select_pod,
     select_pid,
     get_pods_by_label,
@@ -10,9 +10,8 @@ from debugwand.k8s import (
     list_python_processes_with_details,
     exec_command_in_pod,
     copy_to_pod,
-    PodInfo,
-    ProcessInfo
 )
+from debugwand.types import PodInfo, ProcessInfo
 
 
 class TestSelectPod:
@@ -171,8 +170,8 @@ class TestGetPodsForService:
 
         # First call: get service, second call: get pods
         mock_run.side_effect = [
-            MagicMock(stdout=json.dumps(service_output)),
-            MagicMock(stdout=json.dumps(pods_output))
+            MagicMock(stdout=json.dumps(service_output), returncode=0, stderr=""),
+            MagicMock(stdout=json.dumps(pods_output), returncode=0, stderr="")
         ]
 
         pods = get_pods_for_service(namespace="default", service="myapp-service")
@@ -196,8 +195,8 @@ class TestGetPodsForService:
         pods_output: dict[str, list[dict[str, object]]] = {"items": []}
 
         mock_run.side_effect = [
-            MagicMock(stdout=json.dumps(service_output)),
-            MagicMock(stdout=json.dumps(pods_output))
+            MagicMock(stdout=json.dumps(service_output), returncode=0, stderr=""),
+            MagicMock(stdout=json.dumps(pods_output), returncode=0, stderr="")
         ]
 
         get_pods_for_service(namespace="default", service="knative-service")

@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch, mock_open
 import pytest
 from debugwand.operations import get_and_select_pod, get_and_select_process, prepare_debugpy_script
-from debugwand.k8s import PodInfo, ProcessInfo
+from debugwand.types import PodInfo, ProcessInfo
 
 
 class TestGetAndSelectPod:
