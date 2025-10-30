@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+import typer
+
 from debugwand.types import PodInfo, ProcessInfo
 
 # Kubernetes constants
@@ -17,14 +19,6 @@ _KNATIVE_SERVICE_LABEL = "serving.knative.dev/service"
 
 
 def is_port_available(port: int) -> bool:
-    """Check if a local port is available for binding.
-
-    Args:
-        port: Port number to check (1-65535)
-
-    Returns:
-        True if the port is available, False if already in use
-    """
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         try:
             sock.bind(("127.0.0.1", port))
@@ -37,32 +31,18 @@ def is_port_available(port: int) -> bool:
 
 
 def select_pod(pods: list[PodInfo]) -> PodInfo:
-    """Select a pod from a list interactively or automatically.
-
-    If only one pod is available, it's automatically selected.
-    Otherwise, displays options and prompts for user selection.
-
-    Args:
-        pods: List of pods to select from
-
-    Returns:
-        Selected PodInfo object
-
-    Raises:
-        ValueError: If pod list is empty or selection is invalid
-    """
     if not pods:
         raise ValueError("No pods available to select from.")
     if len(pods) == 1:
         return pods[0]
 
-    print("Multiple pods found. Please select one:")
+    typer.echo("❔ Multiple pods found. Please select one:")
     for idx, pod in enumerate(pods):
-        print(
+        typer.echo(
             f"{idx + 1}: {pod.name} (Namespace: {pod.namespace}, Status: {pod.status})"
         )
 
-    selection = int(input("Enter the number of the pod to select: ")) - 1
+    selection = int(typer.prompt("Enter the number of the pod to select")) - 1
     if selection < 0 or selection >= len(pods):
         raise ValueError("Invalid selection.")
 
@@ -70,18 +50,6 @@ def select_pod(pods: list[PodInfo]) -> PodInfo:
 
 
 def _get_label_selector_for_service(service_json: dict[str, Any], service: str) -> str:
-    """Extract the appropriate label selector from service spec.
-
-    Args:
-        service_json: Parsed JSON from kubectl get service
-        service: Service name (used for Knative services)
-
-    Returns:
-        Label selector string (e.g., "app=myapp,tier=frontend")
-
-    Raises:
-        ValueError: If service has no selector
-    """
     service_type = service_json.get("spec", {}).get("type", "")
 
     # Check if it's a Knative service
@@ -97,21 +65,6 @@ def _get_label_selector_for_service(service_json: dict[str, Any], service: str) 
 
 
 def get_pods_for_service(namespace: str, service: str) -> list[PodInfo]:
-    """Get all pods associated with a Kubernetes service.
-
-    Handles both standard Kubernetes services and Knative services.
-
-    Args:
-        namespace: Kubernetes namespace containing the service
-        service: Name of the service
-
-    Returns:
-        List of PodInfo objects for pods backing the service
-
-    Raises:
-        ValueError: If the service is not found or has no selector
-        subprocess.CalledProcessError: If kubectl command fails
-    """
     cmd = ["kubectl", "get", "service", service, "-n", namespace, "-o", "json"]
 
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -134,21 +87,22 @@ def get_pods_for_service(namespace: str, service: str) -> list[PodInfo]:
     return get_pods_by_label(namespace=namespace, label_selector=label_selector)
 
 
+def get_pods_for_service_handler(namespace: str, service: str) -> list[PodInfo]:
+    try:
+        pod_list = get_pods_for_service(service=service, namespace=namespace)
+    except ValueError as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(code=1)
+
+    if not pod_list:
+        typer.echo("❌ No pods found matching the criteria.", err=True)
+        raise typer.Exit(code=1)
+    return pod_list
+
+
 def get_pods_by_label(
     namespace: str | None, label_selector: str | None
 ) -> list[PodInfo]:
-    """Get pods filtered by namespace and label selector.
-
-    Args:
-        namespace: Kubernetes namespace (None for all namespaces)
-        label_selector: Label selector string (e.g., "app=myapp,tier=frontend")
-
-    Returns:
-        List of PodInfo objects matching the criteria
-
-    Raises:
-        subprocess.CalledProcessError: If kubectl command fails
-    """
     cmd = ["kubectl", "get", "pods", "-o", "json"]
     if namespace:
         cmd.extend(["-n", namespace])
@@ -178,24 +132,36 @@ def get_and_select_pod(service: str, namespace: str) -> PodInfo:
     return select_pod(pod_list)
 
 
+def get_and_select_pod_handler(service: str, namespace: str) -> PodInfo:
+    try:
+        pod = get_and_select_pod(service=service, namespace=namespace)
+        return pod
+    except ValueError as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(code=1)
+
+
 # ===== Process listing and selection =====
+
+# Process detection patterns
+_HELPER_PROCESS_PATTERNS = [
+    "multiprocessing.resource_tracker",
+    "multiprocessing.spawn",
+    "from multiprocessing",
+]
+
+_MAIN_PROCESS_INDICATORS = [
+    "fastapi run",
+    "gunicorn",
+    "uvicorn",
+    "flask run",
+    "python -m",
+    "python app.py",
+    "python main.py",
+]
 
 
 def list_python_processes_with_details(pod: PodInfo) -> list[ProcessInfo]:
-    """List Python processes in a pod with CPU/memory details.
-
-    Uses `ps aux` to get process information and filters for Python processes.
-
-    Args:
-        pod: Pod to list processes in
-
-    Returns:
-        List of ProcessInfo objects for Python processes
-
-    Raises:
-        ValueError: If pod is not in Running state
-        subprocess.CalledProcessError: If kubectl exec fails
-    """
     if pod.status != "Running":
         raise ValueError(f"Pod '{pod.name}' is not running (status: {pod.status})")
 
@@ -217,22 +183,25 @@ def list_python_processes_with_details(pod: PodInfo) -> list[ProcessInfo]:
     return processes
 
 
-# Process detection patterns
-_HELPER_PROCESS_PATTERNS = [
-    "multiprocessing.resource_tracker",
-    "multiprocessing.spawn",
-    "from multiprocessing",
-]
-
-_MAIN_PROCESS_INDICATORS = [
-    "fastapi run",
-    "gunicorn",
-    "uvicorn",
-    "flask run",
-    "python -m",
-    "python app.py",
-    "python main.py",
-]
+def list_all_processes_with_details_handler(pod: PodInfo) -> list[ProcessInfo] | None:
+    if pod.status != "Running":
+        typer.echo(
+            f"❌ Pod '{pod.name}' is not running (skipping process list)",
+            err=True,
+        )
+        return None
+    try:
+        processes = list_python_processes_with_details(pod)
+        return processes
+    except subprocess.CalledProcessError as e:
+        typer.echo(
+            f"❌ Failed to list processes in pod '{pod.name}': {e.stderr.strip()}",
+            err=True,
+        )
+        return None
+    except Exception as e:
+        typer.echo(f"❌ Error accessing pod '{pod.name}': {e}", err=True)
+        return None
 
 
 def _is_helper_process(proc: ProcessInfo) -> bool:
@@ -262,11 +231,6 @@ def is_main_process(proc: ProcessInfo) -> bool:
 def detect_reload_mode(
     processes: list[ProcessInfo],
 ) -> tuple[bool, ProcessInfo | None]:
-    """Detect if app is running in reload mode and find the worker process.
-
-    Returns:
-        (is_reload_mode, worker_process)
-    """
     # Look for parent process with --reload flag
     reload_parent = None
     for proc in processes:
@@ -289,19 +253,15 @@ def select_pid(processes: list[ProcessInfo]) -> int:
     if not processes:
         raise ValueError("No Python processes found in the pod.")
 
-    # Check for reload mode
     is_reload, worker_proc = detect_reload_mode(processes)
     if is_reload and worker_proc:
-        # Just return the worker PID - let caller handle UI
         return worker_proc.pid
     elif is_reload and not worker_proc:
         print(f"\n⚠️  WARNING: Reload mode detected but couldn't find worker process.")
         print(f"You may need to manually select the correct PID.\n")
 
-    # Filter to main processes only
     main_processes = [p for p in processes if is_main_process(p)]
 
-    # If filtering removed everything, use all processes
     if not main_processes:
         main_processes = processes
 
@@ -313,6 +273,7 @@ def select_pid(processes: list[ProcessInfo]) -> int:
         cmd_short = (
             proc.command[:60] + "..." if len(proc.command) > 60 else proc.command
         )
+
         # Highlight if it's PID 1 (likely main process) or a worker
         marker = ""
         if proc.pid == 1:
@@ -343,27 +304,23 @@ def get_and_select_process(pod: PodInfo, pid: int | None) -> int:
             )
         return pid
 
-    # Check for reload mode and show warning if detected
-    is_reload, worker_proc = detect_reload_mode(processes)
-    if is_reload and worker_proc:
-        from debugwand.ui import print_reload_mode_warning
-
-        print_reload_mode_warning(worker_proc.pid, parent_pid=1)
-
+    # Note: Reload mode detection and warning is handled by the UI layer
     return select_pid(processes)
+
+
+def get_and_select_process_handler(pod: PodInfo, pid: int | None) -> int:
+    try:
+        selected_pid = get_and_select_process(pod, pid)
+        return selected_pid
+    except ValueError as e:
+        typer.echo(f"❌ {e}", err=True)
+        raise typer.Exit(code=1)
 
 
 # ===== Pod command execution =====
 
 
 def exec_command_in_pod(pod: PodInfo, command: list[str], verbose: bool = False) -> str:
-    """Execute a command in a pod.
-
-    Args:
-        pod: The pod to execute the command in
-        command: The command to execute
-        verbose: If True, print stdout/stderr. Defaults to False.
-    """
     cmd = ["kubectl", "exec", pod.name, "-n", pod.namespace, "--"] + command
     result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -381,19 +338,6 @@ def exec_command_in_pod(pod: PodInfo, command: list[str], verbose: bool = False)
 
 
 def copy_to_pod(pod: PodInfo, local_path: str, remote_path: str):
-    """Copy a file from local filesystem to a pod.
-
-    Uses kubectl cp under the hood. The remote path should be an absolute path
-    within the pod's filesystem.
-
-    Args:
-        pod: Target pod
-        local_path: Absolute path to local file
-        remote_path: Absolute path in pod where file should be copied
-
-    Raises:
-        subprocess.CalledProcessError: If kubectl cp fails
-    """
     cmd = ["kubectl", "cp", local_path, f"{pod.namespace}/{pod.name}:{remote_path}"]
     subprocess.run(cmd, check=True)
 
@@ -402,19 +346,6 @@ def copy_to_pod(pod: PodInfo, local_path: str, remote_path: str):
 
 
 def prepare_debugpy_script(port: int, wait: bool = True) -> str:
-    """Prepare the debugpy attachment script content.
-
-    Generates a temporary script that will be injected into the target process
-    to start a debugpy server.
-
-    Args:
-        port: Port number for debugpy server to listen on
-        wait: Whether debugpy should wait for client before continuing
-
-    Returns:
-        Path to temporary script file (caller should clean up)
-    """
-
     template_path = Path(__file__).parent / "debugpy_template.py"
     with open(template_path, "r") as f:
         script_content = f.read()

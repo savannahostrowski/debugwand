@@ -10,13 +10,6 @@ _console = Console()
 
 
 def render_pods_table(pods: list[PodInfo]):
-    """Render a formatted table of Kubernetes pods.
-
-    Displays pod name, namespace, and status in a rich table format.
-
-    Args:
-        pods: List of pods to display
-    """
     table = Table()
 
     table.add_column("Pod Name", style="cyan", no_wrap=True)
@@ -30,17 +23,6 @@ def render_pods_table(pods: list[PodInfo]):
 
 
 def render_processes_table(pod_processes: list[tuple[PodInfo, list[ProcessInfo]]]):
-    """Render a formatted table of Python processes grouped by pod.
-
-    Displays processes with their PID, type (MAIN/PARENT/helper/worker), and command.
-    Automatically detects reload mode and highlights the recommended process to debug.
-
-    Args:
-        pod_processes: List of (PodInfo, ProcessInfo list) tuples
-
-    Note:
-        The "⭐ MAIN" indicator shows the recommended process to debug.
-    """
     table = Table()
 
     table.add_column("Pod", style="blue", no_wrap=True, max_width=28)

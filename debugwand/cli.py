@@ -9,11 +9,11 @@ from rich.console import Console
 from debugwand.operations import (
     copy_to_pod,
     exec_command_in_pod,
-    get_and_select_pod,
-    get_and_select_process,
-    get_pods_for_service,
+    get_and_select_pod_handler,
+    get_and_select_process_handler,
+    get_pods_for_service_handler,
     is_port_available,
-    list_python_processes_with_details,
+    list_all_processes_with_details_handler,
     prepare_debugpy_script,
     select_pid,
     select_pod,
@@ -47,47 +47,17 @@ def pods(
         False, "--with-pids", help="Also list Python processes in each pod."
     ),
 ):
-    # List pods and optionally their Python processes
     if with_pids:
-        try:
-            pod_list = get_pods_for_service(service=service, namespace=namespace)
-        except ValueError as e:
-            typer.echo(f"❌ {e}", err=True)
-            raise typer.Exit(code=1)
-
-        if not pod_list:
-            typer.echo("❌ No pods found matching the criteria.", err=True)
-            raise typer.Exit(code=1)
+        pod_list = get_pods_for_service_handler(namespace, service)
 
         # Collect all pod-process pairs
         pod_processes: list[tuple[PodInfo, list[ProcessInfo]]] = []
         for pod in pod_list:
-            if pod.status != "Running":
-                typer.echo(
-                    f"❌ Pod '{pod.name}' is not running (skipping process list)",
-                    err=True,
-                )
-                continue
-
-            try:
-                processes = list_python_processes_with_details(pod)
-            except subprocess.CalledProcessError as e:
-                typer.echo(
-                    f"❌ Failed to list processes in pod '{pod.name}': {e.stderr.strip()}",
-                    err=True,
-                )
-                continue
-            except Exception as e:
-                typer.echo(f"❌ Error accessing pod '{pod.name}': {e}", err=True)
-                continue
-
-            if not processes:
-                typer.echo(
-                    f"❌ No Python processes found in pod '{pod.name}'.", err=True
-                )
-                continue
-
-            pod_processes.append((pod, processes))
+            processes: list[ProcessInfo] | None = (
+                list_all_processes_with_details_handler(pod)
+            )
+            if processes:
+                pod_processes.append((pod, processes))
 
         # Render all pods and processes in a single grouped table
         if pod_processes:
@@ -96,15 +66,7 @@ def pods(
             typer.echo("❌ No running pods with Python processes found.", err=True)
             raise typer.Exit(code=1)
     else:
-        try:
-            pod_list = get_pods_for_service(service=service, namespace=namespace)
-        except ValueError as e:
-            typer.echo(f"❌ {e}", err=True)
-            raise typer.Exit(code=1)
-
-        if not pod_list:
-            typer.echo("❌ No pods found matching the criteria.", err=True)
-            raise typer.Exit(code=1)
+        pod_list = get_pods_for_service_handler(namespace, service)
 
         render_pods_table(pod_list)
 
@@ -117,15 +79,16 @@ def inject(
     service: str = typer.Option(..., "--service", "-s", help="The service to use."),
     script: str = typer.Option(..., "--script", "-c", help="The script to execute."),
 ):
-    pod_list = get_pods_for_service(service=service, namespace=namespace)
     typer.echo(f"Executing script '{script}' in the selected pod...")
-    if not pod_list:
-        typer.echo("No pods found matching the criteria.", err=True)
-        raise typer.Exit(code=1)
-
+    pod_list = get_pods_for_service_handler(namespace, service)
     pod = select_pod(pod_list)
 
-    processes = list_python_processes_with_details(pod)
+    processes: list[ProcessInfo] | None = list_all_processes_with_details_handler(pod)
+    if not processes:
+        typer.echo(
+            "❌ No running Python processes found in the selected pod.", err=True
+        )
+        raise typer.Exit(code=1)
     pid = select_pid(processes)
 
     script_basename = os.path.basename(script)
@@ -167,19 +130,8 @@ def debug(
         help="The PID of the Python process to debug. If not provided, you will be prompted to select.",
     ),
 ):
-    # Select pod
-    try:
-        pod: PodInfo = get_and_select_pod(service=service, namespace=namespace)
-    except ValueError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(code=1)
-
-    # Select PID
-    try:
-        pid = get_and_select_process(pod, pid)
-    except ValueError as e:
-        typer.echo(str(e), err=True)
-        raise typer.Exit(code=1)
+    pod = get_and_select_pod_handler(service=service, namespace=namespace)
+    pid = get_and_select_process_handler(pod=pod, pid=pid)
 
     # Prepare debugpy script
     temp_script_path = prepare_debugpy_script(port=port, wait=True)
@@ -211,7 +163,6 @@ def debug(
 
         port_forward_proc = None
         if auto_forward:
-            # Check if port is available before attempting port-forward
             if not is_port_available(port):
                 typer.echo(f"⚠️  Port {port} is already in use.", err=True)
                 typer.echo(
@@ -246,7 +197,6 @@ def debug(
                     typer.echo("❌ Failed to establish port-forwarding.", err=True)
                     port_forward_proc = None
 
-            # Show connection instructions
             print_connection_info(port, service)
 
         if port_forward_proc:
