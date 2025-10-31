@@ -9,8 +9,8 @@ def start_debugpy(port: int = 5679):
     try:
         import debugpy
     except ImportError:
-        print("[MANTIS ERROR] debugpy not installed in target process")
-        print("[MANTIS ERROR] Install with: pip install debugpy")
+        print("[WAND ERROR] debugpy not installed in target process")
+        print("[WAND ERROR] Install with: pip install debugpy")
         return False
 
     try:
@@ -18,22 +18,22 @@ def start_debugpy(port: int = 5679):
         import os
         import sys
 
-        print(f"[MANTIS] Process working directory: {os.getcwd()}")
-        print(f"[MANTIS] Python executable: {sys.executable}")
+        print(f"[WAND] Process working directory: {os.getcwd()}")
+        print(f"[WAND] Python executable: {sys.executable}")
         if hasattr(sys.modules.get("__main__"), "__file__"):
-            print(f"[MANTIS] Main module file: {sys.modules['__main__'].__file__}")
+            print(f"[WAND] Main module file: {sys.modules['__main__'].__file__}")
 
         # Check if already listening (connected or not)
         if debugpy.is_client_connected():
-            print(f"[MANTIS] Debugpy already connected")
+            print(f"[WAND] Debugpy already connected")
             return True
 
         # Try to check if already listening (even without client)
         try:
             # This will raise an exception if already listening
-            print(f"[MANTIS] Starting debugpy on port {port}...")
+            print(f"[WAND] Starting debugpy on port {port}...")
             debugpy.listen(("0.0.0.0", port))
-            print(f"[MANTIS] Debugpy listening on 0.0.0.0:{port}")
+            print(f"[WAND] Debugpy listening on 0.0.0.0:{port}")
         except RuntimeError as e:
             error_msg = str(e).lower()
             if (
@@ -42,25 +42,26 @@ def start_debugpy(port: int = 5679):
                 or "already listening" in error_msg
             ):
                 print(
-                    f"[MANTIS] Debugpy already listening on port {port} (reusing existing session)"
+                    f"[WAND] Debugpy already listening on port {port} (reusing existing session)"
                 )
                 # Already listening from a previous injection - that's fine!
             else:
                 raise
 
         # Wait for the debugger to attach (if requested)
-        if {WAIT}:  # type: ignore  # Template placeholder
-            print("[MANTIS] Waiting for debugger to attach...")
+        # This is a template placeholder, replaced before injection
+        if {WAIT}:  # type: ignore
+            print("[WAND] Waiting for debugger to attach...")
             debugpy.wait_for_client()
-            print("[MANTIS] Debugger attached successfully!")
+            print("[WAND] Debugger attached successfully!")
         else:
             print(
-                "[MANTIS] Debugger can attach anytime. Breakpoints will work once connected."
+                "[WAND] Debugger can attach anytime. Breakpoints will work once connected."
             )
         return True
 
     except Exception as e:
-        print(f"[MANTIS ERROR] Failed to start debugpy: {e}")
+        print(f"[WAND ERROR] Failed to start debugpy: {e}")
         import traceback
 
         traceback.print_exc()

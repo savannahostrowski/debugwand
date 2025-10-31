@@ -133,11 +133,11 @@ def debug(
     pod = get_and_select_pod_handler(service=service, namespace=namespace)
     pid = get_and_select_process_handler(pod=pod, pid=pid)
 
-    # Prepare debugpy script
+    # Prepare debugpy script on local filesystem
     temp_script_path = prepare_debugpy_script(port=port, wait=True)
+    script_basename = os.path.basename(temp_script_path)
 
     try:
-        script_basename = os.path.basename(temp_script_path)
         copy_to_pod(pod, temp_script_path, f"/tmp/{script_basename}")
 
         attacher_path = Path(__file__).parent / "attacher.py"
@@ -164,7 +164,7 @@ def debug(
         port_forward_proc = None
         if auto_forward:
             if not is_port_available(port):
-                typer.echo(f"⚠️  Port {port} is already in use.", err=True)
+                typer.echo(f"⚠️ Port {port} is already in use.", err=True)
                 typer.echo(
                     f"Tip: Either kill the process using port {port} or use a different port with --port",
                     err=True,
@@ -206,10 +206,27 @@ def debug(
                 print_step("Stopping port-forwarding...")
                 port_forward_proc.terminate()
                 port_forward_proc.wait()
-                print_info("Port-forwarding stopped.")
+                print_info(" Port-forwarding stopped.")
     finally:
+        # Clean up temporary script file
         os.unlink(temp_script_path)
 
+        try:
+            print_step("Cleaning up injected files in the pod...", prefix="🧹")
+
+            # Clean up any injected files in the pod
+            exec_command_in_pod(
+                pod=pod,
+                command=[
+                    "rm",
+                    "-f",
+                    f"/tmp/{script_basename}",
+                    "/tmp/attacher.py",
+                ],
+            )
+        except Exception as e:
+            # Silently ignore cleanup errors
+            pass
 
 if __name__ == "__main__":
     app()

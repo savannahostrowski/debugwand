@@ -94,7 +94,7 @@ def print_reload_mode_warning(worker_pid: int, parent_pid: int = 1):
         )
     )
     _console.print(
-        f"[green]✓[/green] Auto-selecting worker process: [cyan bold]PID {worker_pid}[/cyan bold]"
+        f"[green]✅[/green] Auto-selecting worker process: [cyan bold]PID {worker_pid}[/cyan bold]"
     )
 
 
