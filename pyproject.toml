@@ -76,4 +76,5 @@ package = true
 [dependency-groups]
 dev = [
     "pytest>=8.4.2",
+    "ruff>=0.14.4",
 ]

@@ -106,16 +106,83 @@ The target pod doesn't have debugpy installed. Add debugpy to your application d
 
 ### Breakpoints not hitting
 
-**Reload mode detection:** If your app runs with `--reload` (FastAPI, Flask, etc.), debugwand automatically detects this and injects debugpy into the **worker process** instead of the parent. You'll see:
-
-```
-⚠️  RELOAD MODE DETECTED
-Auto-selecting worker process: PID <pid>
-```
-
 **Path mappings:** Ensure your `launch.json` maps local to remote paths correctly.
 
 **Multiple pods:** If you have multiple replicas, requests may be load-balanced to a different pod than the one you're debugging. Consider scaling down to a single replica during debugging.
+
+## Hot-Reload Support
+
+### Debugging with `--reload`
+
+debugwand automatically handles uvicorn's `--reload` mode:
+- Detects when your app runs with `--reload` (FastAPI, Flask, etc.)
+- Monitors for worker process restarts
+- Auto-reinjects debugpy when the worker PID changes
+- Keeps port-forward alive across worker restarts
+
+**Note:** When the worker restarts, VSCode will detach (because the process dies). You'll need to press F5 to reconnect, but debugwand keeps the session alive and debugpy ready.
+
+### How It Works
+
+1. **Start debugging:**
+   ```bash
+   wand debug -n my-namespace -s my-service
+   ```
+
+2. **Connect VSCode** (press F5)
+
+3. **Edit your code:**
+   - Tilt syncs files to pod
+   - uvicorn detects changes and restarts worker
+   - debugwand detects PID change and reinjects debugpy
+   - Press F5 in VSCode to reconnect
+   - Your breakpoints keep working!
+
+### Example Session
+
+```bash
+$ wand debug -n fastapicloud -s api
+🔧 Injecting debugpy into PID 82 in pod api-00002...
+✅ Successfully injected debugpy into PID 82
+🔄 Reload mode detected - will auto-reinject debugpy on worker restarts
+🚀 Port-forwarding established on port 5679
+
+# You edit a file...
+🔄 Worker restarted (PID 82 → 125), auto-reinjecting debugpy...
+✅ Debugpy reinjected into new worker (PID 125)
+💡 Press F5 in VSCode to reconnect
+
+# Keep coding! The cycle repeats
+```
+
+### VSCode Configuration
+
+Standard debugpy attach configuration works:
+```json
+{
+  "name": "Attach to Kubernetes Pod",
+  "type": "debugpy",
+  "request": "attach",
+  "connect": {
+    "host": "localhost",
+    "port": 5679
+  },
+  "pathMappings": [
+    {
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/app"
+    }
+  ]
+}
+```
+
+### What You Get
+
+- ✅ Keep uvicorn `--reload` enabled for fast iteration
+- ✅ Debugpy automatically reinjects on worker restarts
+- ✅ Simple F5 press to reconnect after code changes
+- ✅ Port-forward stays alive across worker restarts
+- ✅ Auto-reconnect if entire pod restarts
 
 ## Architecture
 

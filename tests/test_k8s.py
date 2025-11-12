@@ -2,15 +2,18 @@
 
 import json
 from unittest.mock import MagicMock, patch
+
 import pytest
+import typer
+
 from debugwand.operations import (
-    select_pod,
-    select_pid,
+    copy_to_pod,
+    exec_command_in_pod,
     get_pods_by_label,
     get_pods_for_service,
     list_python_processes_with_details,
-    exec_command_in_pod,
-    copy_to_pod,
+    select_pid,
+    select_pod,
 )
 from debugwand.types import PodInfo, ProcessInfo
 
@@ -19,9 +22,10 @@ class TestSelectPod:
     """Tests for select_pod function."""
 
     def test_empty_list_raises_error(self):
-        """Test that ValueError is raised when pod list is empty."""
-        with pytest.raises(ValueError, match="No pods available"):
+        """Test that typer.Exit is raised when pod list is empty."""
+        with pytest.raises(typer.Exit) as exc_info:
             select_pod([])
+        assert exc_info.value.exit_code == 1
 
     def test_single_pod_auto_selected(self):
         """Test that a single pod is automatically selected without prompting."""
