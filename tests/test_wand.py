@@ -1,8 +1,10 @@
 import os
 import tempfile
-from typer.testing import CliRunner
+from unittest.mock import MagicMock, patch
+
 from typer import Exit
-from unittest.mock import patch, MagicMock
+from typer.testing import CliRunner
+
 from debugwand.cli import app
 from debugwand.types import PodInfo, ProcessInfo
 

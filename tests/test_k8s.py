@@ -2,16 +2,18 @@
 
 import json
 from unittest.mock import MagicMock, patch
+
 import pytest
 import typer
+
 from debugwand.operations import (
-    select_pod,
-    select_pid,
+    copy_to_pod,
+    exec_command_in_pod,
     get_pods_by_label,
     get_pods_for_service,
     list_python_processes_with_details,
-    exec_command_in_pod,
-    copy_to_pod,
+    select_pid,
+    select_pod,
 )
 from debugwand.types import PodInfo, ProcessInfo
 

@@ -451,9 +451,14 @@ def monitor_worker_pid(pod: PodInfo, initial_pid: int) -> int | None:
             return None
 
         is_reload, worker_proc = detect_reload_mode(processes)
-        if not is_reload or not worker_proc:
+        if not is_reload:
             # No longer in reload mode, stop monitoring
             return None
+
+        if not worker_proc:
+            # Worker process temporarily not found (might be frozen at breakpoint,
+            # or in transition during restart). Keep monitoring.
+            return initial_pid
 
         if worker_proc.pid != initial_pid:
             # Worker PID changed! Return new PID

@@ -1,8 +1,11 @@
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, mock_open, patch
+
 import pytest
+
 from debugwand.operations import (
     get_and_select_pod,
     get_and_select_process,
+    monitor_worker_pid,
     prepare_debugpy_script,
 )
 from debugwand.types import PodInfo, ProcessInfo
@@ -165,3 +168,105 @@ class TestPrepareDebugpyScript:
         written_content = temp_file.write.call_args[0][0]
         assert "8080" in written_content
         assert "False" in written_content
+
+
+class TestMonitorWorkerPid:
+    """Tests for monitor_worker_pid function."""
+
+    @patch("debugwand.operations.list_python_processes_with_details")
+    @patch("debugwand.operations.detect_reload_mode")
+    def test_keeps_monitoring_when_worker_not_found(
+        self, mock_detect: MagicMock, mock_list_procs: MagicMock
+    ):
+        """Test that monitoring continues when worker process is temporarily not found.
+
+        This handles the case where a worker is frozen at a breakpoint or in transition,
+        and detect_reload_mode returns (True, None). The session should stay alive.
+        """
+        pod = PodInfo(
+            name="test-pod",
+            namespace="default",
+            node_name="node-1",
+            status="Running",
+            labels={"app": "test"},
+        )
+
+        # Simulate reload mode detected but worker process not found
+        # (e.g., worker frozen at breakpoint)
+        mock_list_procs.return_value = [
+            ProcessInfo(
+                pid=1,
+                user="root",
+                cpu_percent=0.1,
+                mem_percent=0.5,
+                command="python -m fastapi run app/api/main.py --reload",
+            )
+        ]
+        mock_detect.return_value = (True, None)  # is_reload=True, worker_proc=None
+
+        result = monitor_worker_pid(pod, initial_pid=123)
+
+        # Should return initial_pid to keep monitoring, not None
+        assert result == 123
+        mock_list_procs.assert_called_once_with(pod)
+        mock_detect.assert_called_once()
+
+    @patch("debugwand.operations.list_python_processes_with_details")
+    @patch("debugwand.operations.detect_reload_mode")
+    def test_detects_pid_change(
+        self, mock_detect: MagicMock, mock_list_procs: MagicMock
+    ):
+        """Test that PID change is detected when worker restarts."""
+        pod = PodInfo(
+            name="test-pod",
+            namespace="default",
+            node_name="node-1",
+            status="Running",
+            labels={"app": "test"},
+        )
+
+        new_worker = ProcessInfo(
+            pid=456,
+            user="root",
+            cpu_percent=0.2,
+            mem_percent=1.0,
+            command="python -c from multiprocessing.spawn import spawn_main",
+        )
+
+        mock_list_procs.return_value = [new_worker]
+        mock_detect.return_value = (True, new_worker)
+
+        result = monitor_worker_pid(pod, initial_pid=123)
+
+        # Should return new PID
+        assert result == 456
+
+    @patch("debugwand.operations.list_python_processes_with_details")
+    @patch("debugwand.operations.detect_reload_mode")
+    def test_stops_monitoring_when_not_reload_mode(
+        self, mock_detect: MagicMock, mock_list_procs: MagicMock
+    ):
+        """Test that monitoring stops when reload mode is no longer detected."""
+        pod = PodInfo(
+            name="test-pod",
+            namespace="default",
+            node_name="node-1",
+            status="Running",
+            labels={"app": "test"},
+        )
+
+        mock_list_procs.return_value = [
+            ProcessInfo(
+                pid=1,
+                user="root",
+                cpu_percent=0.1,
+                mem_percent=0.5,
+                command="python app.py",  # No --reload
+            )
+        ]
+        mock_detect.return_value = (False, None)
+
+        result = monitor_worker_pid(pod, initial_pid=123)
+
+        # Should return None to stop monitoring
+        assert result is None
