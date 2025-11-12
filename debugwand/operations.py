@@ -4,6 +4,7 @@ import json
 import socket
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,22 +31,27 @@ def is_port_available(port: int) -> bool:
 
 
 def select_pod(pods: list[PodInfo]) -> PodInfo:
-    if not pods:
-        raise ValueError("No pods available to select from.")
-    if len(pods) == 1:
-        return pods[0]
+    # Filter to only Running pods (exclude Succeeded, Failed, Pending, etc.)
+    running_pods = [pod for pod in pods if pod.status == "Running"]
+
+    if not running_pods:
+        typer.echo("❌ No running pods found.", err=True)
+        raise typer.Exit(code=1)
+
+    if len(running_pods) == 1:
+        return running_pods[0]
 
     typer.echo("❔ Multiple pods found. Please select one:")
-    for idx, pod in enumerate(pods):
+    for idx, pod in enumerate(running_pods):
         typer.echo(
             f"{idx + 1}: {pod.name} (Namespace: {pod.namespace}, Status: {pod.status})"
         )
 
     selection = int(typer.prompt("Enter the number of the pod to select")) - 1
-    if selection < 0 or selection >= len(pods):
+    if selection < 0 or selection >= len(running_pods):
         raise ValueError("Invalid selection.")
 
-    return pods[selection]
+    return running_pods[selection]
 
 
 def _get_label_selector_for_service(service_json: dict[str, Any], service: str) -> str:
@@ -317,13 +323,13 @@ def get_and_select_process_handler(pod: PodInfo, pid: int | None) -> int:
         if not processes:
             raise ValueError("No Python processes found in the selected pod.")
 
-        # Check for reload mode and show warning if detected
-        is_reload, worker_proc = detect_reload_mode(processes)
-        if is_reload and worker_proc and not pid:
-            print_reload_mode_warning(worker_proc.pid, parent_pid=1)
-
         # Now do the actual selection
         selected_pid = get_and_select_process(pod, pid)
+
+        # Check for reload mode and show warning after selection
+        is_reload, worker_proc = detect_reload_mode(processes)
+        if is_reload and worker_proc and not pid:
+            print_reload_mode_warning(worker_proc.pid)
         return selected_pid
     except ValueError as e:
         typer.echo(f"❌ {e}", err=True)
@@ -333,7 +339,9 @@ def get_and_select_process_handler(pod: PodInfo, pid: int | None) -> int:
 # ===== Pod command execution =====
 
 
-def exec_command_in_pod(pod: PodInfo, command: list[str], verbose: bool = False) -> str:
+def exec_command_in_pod(
+    pod: PodInfo, command: list[str], verbose: bool = False, silent_errors: bool = False
+) -> str:
     cmd = ["kubectl", "exec", pod.name, "-n", pod.namespace, "--"] + command
     result = subprocess.run(cmd, capture_output=True, text=True)
 
@@ -341,9 +349,10 @@ def exec_command_in_pod(pod: PodInfo, command: list[str], verbose: bool = False)
         print(f"STDOUT: {result.stdout}")
 
     if result.returncode != 0:
-        print(f"Command failed with exit code {result.returncode}")
-        print(f"STDOUT: {result.stdout}")
-        print(f"STDERR: {result.stderr}")
+        if not silent_errors:
+            print(f"Command failed with exit code {result.returncode}")
+            print(f"STDOUT: {result.stdout}")
+            print(f"STDERR: {result.stderr}")
         raise subprocess.CalledProcessError(
             result.returncode, cmd, result.stdout, result.stderr
         )
@@ -370,3 +379,88 @@ def prepare_debugpy_script(port: int, wait: bool = True) -> str:
     with tempfile.NamedTemporaryFile("w", delete=False) as tmpfile:
         tmpfile.write(script_content)
         return tmpfile.name
+
+
+# ===== Auto-reconnect helpers =====
+
+
+def find_replacement_pod(
+    old_pod: PodInfo, service: str, namespace: str
+) -> PodInfo | None:
+    """Find a replacement pod after the old one has terminated.
+    Tries to match by labels/revisions first, falls back to newest running pod."""
+    try:
+        pods = get_pods_for_service(namespace=namespace, service=service)
+    except Exception:
+        return None
+
+    candidate_pods = [
+        p for p in pods if p.status == "Running" and p.name != old_pod.name
+    ]
+    if not candidate_pods:
+        return None
+
+    # Try to match by revision/generation (Knative)
+    if "serving.knative.dev/revision" in old_pod.labels:
+        same_service_pods = [
+            p
+            for p in candidate_pods
+            if p.labels.get("serving.knative.dev/service")
+            == old_pod.labels.get("serving.knative.dev/service")
+        ]
+        if same_service_pods:
+            # Return the newest (by name, which includes generation)
+            return sorted(same_service_pods, key=lambda p: p.name, reverse=True)[0]
+
+    # Fall back to newest pod by name
+    return sorted(candidate_pods, key=lambda p: p.name, reverse=True)[0]
+
+
+def wait_for_new_pod(service: str, namespace: str, timeout: int = 300) -> PodInfo:
+    """Wait for a new pod to become ready after the old one has terminated."""
+    start_time = time.time()
+    wait_interval = 5
+
+    while time.time() - start_time < timeout:
+        try:
+            pods = get_pods_for_service(namespace=namespace, service=service)
+            running_pods = [p for p in pods if p.status == "Running"]
+            if running_pods:
+                for pod in running_pods:
+                    try:
+                        processes = list_python_processes_with_details(pod)
+                        if processes:
+                            return pod
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        time.sleep(wait_interval)
+
+    raise TimeoutError(f"Timed out waiting for a new pod in service '{service}'")
+
+
+def monitor_worker_pid(pod: PodInfo, initial_pid: int) -> int | None:
+    """Monitor for worker PID changes and return new PID if detected.
+    Returns None if monitoring should stop (e.g., pod gone or error).
+    Returns initial_pid if no change detected yet.
+    """
+    try:
+        processes = list_python_processes_with_details(pod)
+        if not processes:
+            return None
+
+        is_reload, worker_proc = detect_reload_mode(processes)
+        if not is_reload or not worker_proc:
+            # No longer in reload mode, stop monitoring
+            return None
+
+        if worker_proc.pid != initial_pid:
+            # Worker PID changed! Return new PID
+            return worker_proc.pid
+
+        # PID hasn't changed yet
+        return initial_pid
+    except Exception:
+        # Pod might be gone or other error, stop monitoring
+        return None

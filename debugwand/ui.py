@@ -80,14 +80,14 @@ def render_processes_table(pod_processes: list[tuple[PodInfo, list[ProcessInfo]]
     _console.print(table)
 
 
-def print_reload_mode_warning(worker_pid: int, parent_pid: int = 1):
+def print_reload_mode_warning(worker_pid: int):
     """Print a formatted warning about reload mode detection."""
     _console.print()
     _console.print(
         Panel(
             f"The app is running with [cyan]--reload[/cyan], which spawns worker processes.\n"
-            f"You should inject into the [green bold]WORKER[/green bold] process (PID [cyan]{worker_pid}[/cyan]), "
-            f"not the parent (PID [dim]{parent_pid}[/dim]).",
+            f"Injecting into the [green bold]WORKER[/green bold] process (PID [cyan]{worker_pid}[/cyan]).\n"
+            f"Process monitoring enabled - debugpy will auto-reinject on worker restarts.",
             border_style="yellow",
             title="Reload Mode",
             expand=False,
