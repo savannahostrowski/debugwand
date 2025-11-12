@@ -10,11 +10,13 @@ from debugwand.operations import (
     copy_to_pod,
     detect_reload_mode,
     exec_command_in_pod,
+    find_process_using_port,
     find_replacement_pod,
     get_and_select_pod_handler,
     get_and_select_process_handler,
     get_pods_for_service_handler,
     is_port_available,
+    kill_process,
     list_all_processes_with_details_handler,
     list_python_processes_with_details,
     monitor_worker_pid,
@@ -131,6 +133,7 @@ def _inject_debugpy_into_pod(pod: PodInfo, pid: int, script_path: str) -> None:
     print_step(
         f"Injecting debugpy into PID [cyan bold]{pid}[/cyan bold] in pod [blue]{pod.name}[/blue]..."
     )
+    # Run injection in background since it blocks waiting for debugger
     exec_command_in_pod(
         pod=pod,
         command=[
@@ -141,7 +144,10 @@ def _inject_debugpy_into_pod(pod: PodInfo, pid: int, script_path: str) -> None:
             "--script",
             f"/tmp/{script_basename}",
         ],
+        background=True,
     )
+    # Give debugpy time to start listening
+    time.sleep(2)
     print_success(
         f"Successfully injected debugpy into PID [cyan]{pid}[/cyan] in pod [blue]{pod.name}[/blue]"
     )
@@ -150,15 +156,64 @@ def _inject_debugpy_into_pod(pod: PodInfo, pid: int, script_path: str) -> None:
 def _setup_port_forwarding(pod: PodInfo, port: int) -> subprocess.Popen[bytes] | None:
     """Set up kubectl port-forwarding to the pod. Returns the process or None if failed."""
     if not is_port_available(port):
-        typer.echo(f"⚠️ Port {port} is already in use.", err=True)
-        typer.echo(
-            f"Tip: Either kill the process using port {port} or use a different port with --port",
-            err=True,
-        )
-        typer.echo(
-            f"You can manually set up port-forwarding with:\n  kubectl port-forward {pod.name} -n {pod.namespace} {port}:{port}"
-        )
-        return None
+        # Try to find the process using the port
+        process_info = find_process_using_port(port)
+
+        if process_info:
+            pid, command = process_info
+            # Check if it's a kubectl port-forward process
+            if "kubectl" in command and "port-forward" in command:
+                print_info(f"Found existing kubectl port-forward (PID {pid})")
+                if typer.confirm(
+                    "Kill the existing port-forward and continue?", default=True
+                ):
+                    if kill_process(pid):
+                        print_success(f"Killed process {pid}")
+                        time.sleep(0.5)  # Give the port time to be released
+                        # Re-check if port is now available
+                        if not is_port_available(port):
+                            typer.echo(
+                                f"⚠️ Port {port} is still in use after killing process.",
+                                err=True,
+                            )
+                            return None
+                    else:
+                        typer.echo(f"❌ Failed to kill process {pid}", err=True)
+                        return None
+                else:
+                    return None
+            else:
+                typer.echo(
+                    f"⚠️ Port {port} is already in use by: {command} (PID {pid})",
+                    err=True,
+                )
+                typer.echo(
+                    f"Tip: Either kill PID {pid} or use a different port with --port",
+                    err=True,
+                )
+                return None
+        else:
+            # Port is in use but we can't find the process
+            # This can happen if the process just died but the port isn't released yet
+            # Wait and retry (OS can take 5+ seconds to release ports on macOS)
+            print_info(
+                f"Port {port} is in use but process not found, waiting for port to be released..."
+            )
+            for attempt in range(10):  # Try for up to 10 seconds
+                time.sleep(1)
+                if is_port_available(port):
+                    print_success("Port is now available")
+                    # Continue to set up port forwarding below
+                    break
+                # Show progress every few seconds
+                if attempt in [2, 5, 8]:
+                    print_info(f"Still waiting... ({attempt + 1}s)")
+            else:
+                # All retries exhausted - try anyway, kubectl might succeed
+                print_info(
+                    f"Port {port} still not available after 10s, attempting port-forward anyway..."
+                )
+                # Continue to try setting up port-forward below
 
     print_step(f"Setting up port-forwarding on port [cyan]{port}[/cyan]...")
     port_forward_proc = subprocess.Popen(
@@ -201,7 +256,7 @@ def _monitor_and_handle_reload_mode(
 
     if is_reload:
         print_info(
-            "🔄 Reload mode detected - will auto-reinject debugpy on worker restarts"
+            "Reload mode detected - will auto-reinject debugpy on worker restarts"
         )
 
         # Monitor for worker PID changes while keeping port-forward alive
@@ -210,26 +265,29 @@ def _monitor_and_handle_reload_mode(
                 new_pid = monitor_worker_pid(pod, pid)
             except Exception as e:
                 # Pod might have died or become unresponsive
-                print_info(f"⚠️ Monitoring exception: {type(e).__name__}: {e}")
+                print_info(
+                    f"Monitoring exception: {type(e).__name__}: {e}", prefix="❌"
+                )
                 return pid, False
 
             if new_pid is None:
                 # Pod gone or monitoring failed, break and try to reconnect
-                print_info("⚠️ monitor_worker_pid returned None, triggering reconnect")
+                print_info(
+                    "monitor_worker_pid returned None, triggering reconnect", prefix="⚠️"
+                )
                 return pid, False
 
             if new_pid != pid:
                 # Worker restarted! Re-inject debugpy
                 print_step(
-                    f"🔄 Worker restarted (PID {pid} → {new_pid}), auto-reinjecting debugpy..."
+                    f"Worker restarted (PID {pid} → {new_pid}), auto-reinjecting debugpy..."
                 )
                 try:
                     reinject_script_path = prepare_debugpy_script(port=port, wait=True)
                     reinject_basename = os.path.basename(reinject_script_path)
                     copy_to_pod(pod, reinject_script_path, f"/tmp/{reinject_basename}")
 
-                    print_info("💡 Worker waiting for debugger - Press F5 in your editor to reconnect")
-
+                    # Run injection in background since it blocks waiting for debugger
                     exec_command_in_pod(
                         pod=pod,
                         command=[
@@ -240,7 +298,11 @@ def _monitor_and_handle_reload_mode(
                             "--script",
                             f"/tmp/{reinject_basename}",
                         ],
+                        background=True,
                     )
+
+                    # Give debugpy more time to start listening before prompting user
+                    time.sleep(2)
 
                     try:
                         os.unlink(reinject_script_path)
@@ -248,9 +310,10 @@ def _monitor_and_handle_reload_mode(
                         pass
 
                     pid = new_pid
-                    print_success(f"✅ Debugger reconnected to new worker (PID {pid})")
+                    print_success(f" Debugpy reinjected into new worker (PID {pid})")
+                    print_info(" Worker ready - Press F5 in your editor to reconnect")
                 except Exception as e:
-                    print_info(f"❌ Failed to re-inject debugpy: {e}")
+                    print_info(f" Failed to re-inject debugpy: {e}", prefix="❌")
                     return pid, False
 
             time.sleep(2)
@@ -268,19 +331,19 @@ def _attempt_reconnect(
     Try to reconnect to a new pod after connection loss.
     Returns (new_pod, new_pid) or (None, None) if failed.
     """
-    print_step("🔄 Connection lost, attempting to reconnect...")
+    print_step("Connection lost, attempting to reconnect...")
     try:
         new_pod = find_replacement_pod(pod, service, namespace)
         if not new_pod:
-            print_info("⚠️  Could not find replacement pod, waiting...")
+            print_info("Could not find replacement pod, waiting...")
             new_pod = wait_for_new_pod(service, namespace)
 
         new_pid = get_and_select_process_handler(pod=new_pod, pid=None)
-        print_success(f"✅ Reconnected to new pod: {new_pod.name}")
-        print_info("💡 Press F5 in your editor to reconnect the debugger")
+        print_success(f"Reconnected to new pod: {new_pod.name}")
+        print_info(" Worker ready - Press F5 in your editor to reconnect")
         return new_pod, new_pid
     except (TimeoutError, Exception) as e:
-        print_info(f"❌ Failed to reconnect: {e}")
+        print_info(f"Failed to reconnect: {e}", prefix="❌")
         return None, None
 
 
@@ -333,7 +396,7 @@ def debug(
                 if not port_forward_proc:
                     return
 
-                print_connection_info(port, service)
+                print_connection_info(port)
 
                 # Monitor for reload mode and handle worker restarts
                 try:
@@ -343,22 +406,30 @@ def debug(
                     if should_break:
                         break
                 except KeyboardInterrupt:
-                    print_step("Stopping port-forwarding...")
+                    print_step("Stopping port-forwarding...", prefix="🔧")
                     port_forward_proc.terminate()
                     port_forward_proc.wait()
                     port_forward_proc = None
-                    print_info("Port-forwarding stopped.")
+                    print_info(" Port-forwarding stopped.")
                     break
                 except Exception as e:
-                    print_info(f"⚠️ Unexpected error in monitoring: {type(e).__name__}: {e}")
+                    print_info(
+                        f"Unexpected error in monitoring: {type(e).__name__}: {e}",
+                        prefix="❌",
+                    )
                     # Don't break, try to reconnect
                     pass
 
                 # Clean up the old port-forward process
-                if port_forward_proc and port_forward_proc.poll() is None:
-                    port_forward_proc.terminate()
-                    port_forward_proc.wait()
+                if port_forward_proc:
+                    if port_forward_proc.poll() is None:
+                        # Process still running, terminate it
+                        port_forward_proc.terminate()
+                        port_forward_proc.wait()
                     port_forward_proc = None
+                    # Always wait for OS to release the port (can take several seconds)
+                    # This is needed even if process already died
+                    time.sleep(2)
 
                 # Attempt to reconnect to a new pod
                 new_pod, new_pid = _attempt_reconnect(pod, service, namespace)
@@ -370,7 +441,7 @@ def debug(
 
             except KeyboardInterrupt:
                 # Handle Ctrl+C anywhere in the loop
-                print_step("Stopping port-forwarding...")
+                print_step("Stopping port-forwarding...", prefix="🔧")
                 if port_forward_proc and port_forward_proc.poll() is None:
                     port_forward_proc.terminate()
                     port_forward_proc.wait()

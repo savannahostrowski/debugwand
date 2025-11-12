@@ -105,7 +105,7 @@ def print_success(message: str, prefix: str = "✅"):
 
 def print_info(message: str, prefix: str = "ℹ️"):
     """Print an info message."""
-    _console.print(f"[blue]{prefix}[/blue] {message}")
+    _console.print(f"[blue]{prefix}[/blue]  {message}")
 
 
 def print_step(message: str, prefix: str = "🔧"):
@@ -113,7 +113,7 @@ def print_step(message: str, prefix: str = "🔧"):
     _console.print(f"[cyan]{prefix}[/cyan] {message}")
 
 
-def print_connection_info(port: int, service: str):
+def print_connection_info(port: int):
     """Print formatted connection instructions with VSCode config."""
     _console.print()
     _console.print(

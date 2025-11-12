@@ -27,6 +27,92 @@ def is_port_available(port: int) -> bool:
             return False
 
 
+def find_process_using_port(port: int) -> tuple[int, str] | None:
+    """Find the process using a specific port. Returns (pid, command) or None."""
+    try:
+        # Try lsof with LISTEN state first (works on macOS and Linux)
+        result = subprocess.run(
+            ["lsof", "-iTCP:" + str(port), "-sTCP:LISTEN", "-n", "-P"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        # If no listener found, try without LISTEN filter (for ESTABLISHED connections)
+        if result.returncode != 0 or not result.stdout.strip():
+            result = subprocess.run(
+                ["lsof", "-i", f":{port}", "-n", "-P"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        if result.returncode == 0 and result.stdout.strip():
+            lines = result.stdout.strip().split("\n")
+            # Skip header line, take first actual result
+            if len(lines) > 1:
+                # Format: COMMAND PID USER FD TYPE DEVICE SIZE/OFF NODE NAME
+                parts = lines[1].split()
+                if len(parts) >= 2:
+                    try:
+                        pid = int(parts[1])
+                        command = parts[0]
+                        # Get full command for this PID
+                        ps_result = subprocess.run(
+                            ["ps", "-p", str(pid), "-o", "command="],
+                            capture_output=True,
+                            text=True,
+                            check=False,
+                        )
+                        if ps_result.returncode == 0 and ps_result.stdout.strip():
+                            return pid, ps_result.stdout.strip()
+                        return pid, command
+                    except (ValueError, IndexError):
+                        pass
+    except (FileNotFoundError, ValueError):
+        pass
+
+    # Fallback: try netstat (Windows and some Linux)
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano"], capture_output=True, text=True, check=False
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if f":{port}" in line and "LISTENING" in line:
+                    parts = line.split()
+                    pid = int(parts[-1])
+                    # On Windows, use tasklist to get command
+                    task_result = subprocess.run(
+                        ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                    if task_result.returncode == 0 and task_result.stdout:
+                        command = task_result.stdout.split(",")[0].strip('"')
+                        return pid, command
+                    return pid, ""
+    except (FileNotFoundError, ValueError):
+        pass
+
+    return None
+
+
+def kill_process(pid: int) -> bool:
+    """Kill a process by PID. Returns True if successful."""
+    try:
+        subprocess.run(["kill", str(pid)], check=True)
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        # Try Windows taskkill
+        try:
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=True)
+            return True
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            return False
+
+
 # ===== Pod selection =====
 
 
@@ -340,9 +426,24 @@ def get_and_select_process_handler(pod: PodInfo, pid: int | None) -> int:
 
 
 def exec_command_in_pod(
-    pod: PodInfo, command: list[str], verbose: bool = False, silent_errors: bool = False
+    pod: PodInfo,
+    command: list[str],
+    verbose: bool = False,
+    silent_errors: bool = False,
+    background: bool = False,
 ) -> str:
     cmd = ["kubectl", "exec", pod.name, "-n", pod.namespace, "--"] + command
+
+    if background:
+        # Run in background without waiting for completion
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,  # Detach from parent
+        )
+        return ""
+
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if verbose and result.stdout:
