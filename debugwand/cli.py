@@ -224,9 +224,10 @@ def debug(
                     "/tmp/attacher.py",
                 ],
             )
-        except Exception as e:
+        except Exception:
             # Silently ignore cleanup errors
             pass
+
 
 if __name__ == "__main__":
     app()
