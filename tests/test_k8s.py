@@ -1,4 +1,5 @@
 """Tests for k8s module - focusing on logic and parsing."""
+
 import json
 from unittest.mock import MagicMock, patch
 import pytest
@@ -53,7 +54,7 @@ class TestSelectPid:
 class TestGetPodsByLabel:
     """Tests for get_pods_by_label function - focuses on JSON parsing."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_parses_pods_correctly(self, mock_run: MagicMock):
         """Test that kubectl JSON output is parsed correctly into PodInfo objects."""
         mock_output = {
@@ -62,28 +63,20 @@ class TestGetPodsByLabel:
                     "metadata": {
                         "name": "app-pod-1",
                         "namespace": "production",
-                        "labels": {"app": "myapp", "version": "v1"}
+                        "labels": {"app": "myapp", "version": "v1"},
                     },
-                    "spec": {
-                        "nodeName": "node-1"
-                    },
-                    "status": {
-                        "phase": "Running"
-                    }
+                    "spec": {"nodeName": "node-1"},
+                    "status": {"phase": "Running"},
                 },
                 {
                     "metadata": {
                         "name": "app-pod-2",
                         "namespace": "production",
-                        "labels": {"app": "myapp", "version": "v2"}
+                        "labels": {"app": "myapp", "version": "v2"},
                     },
-                    "spec": {
-                        "nodeName": "node-2"
-                    },
-                    "status": {
-                        "phase": "Pending"
-                    }
-                }
+                    "spec": {"nodeName": "node-2"},
+                    "status": {"phase": "Pending"},
+                },
             ]
         }
 
@@ -103,7 +96,7 @@ class TestGetPodsByLabel:
         assert pods[1].name == "app-pod-2"
         assert pods[1].status == "Pending"
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_handles_empty_items(self, mock_run: MagicMock):
         """Test that empty items list returns empty pod list."""
         mock_output: dict[str, list[dict[str, object]]] = {"items": []}
@@ -116,7 +109,7 @@ class TestGetPodsByLabel:
 
         assert pods == []
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_handles_missing_node_name(self, mock_run: MagicMock):
         """Test that missing nodeName is handled gracefully."""
         mock_output: dict[str, list[dict[str, object]]] = {
@@ -125,12 +118,10 @@ class TestGetPodsByLabel:
                     "metadata": {
                         "name": "pending-pod",
                         "namespace": "default",
-                        "labels": {}
+                        "labels": {},
                     },
                     "spec": {},  # No nodeName - pod not scheduled yet
-                    "status": {
-                        "phase": "Pending"
-                    }
+                    "status": {"phase": "Pending"},
                 }
             ]
         }
@@ -148,13 +139,13 @@ class TestGetPodsByLabel:
 class TestGetPodsForService:
     """Tests for get_pods_for_service - service type handling."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_standard_service_with_selector(self, mock_run: MagicMock):
         """Test standard ClusterIP service with selector."""
         service_output = {
             "spec": {
                 "type": "ClusterIP",
-                "selector": {"app": "myapp", "tier": "frontend"}
+                "selector": {"app": "myapp", "tier": "frontend"},
             }
         }
 
@@ -163,7 +154,7 @@ class TestGetPodsForService:
                 {
                     "metadata": {"name": "pod-1", "namespace": "default", "labels": {}},
                     "spec": {"nodeName": "node-1"},
-                    "status": {"phase": "Running"}
+                    "status": {"phase": "Running"},
                 }
             ]
         }
@@ -171,7 +162,7 @@ class TestGetPodsForService:
         # First call: get service, second call: get pods
         mock_run.side_effect = [
             MagicMock(stdout=json.dumps(service_output), returncode=0, stderr=""),
-            MagicMock(stdout=json.dumps(pods_output), returncode=0, stderr="")
+            MagicMock(stdout=json.dumps(pods_output), returncode=0, stderr=""),
         ]
 
         pods = get_pods_for_service(namespace="default", service="myapp-service")
@@ -183,20 +174,16 @@ class TestGetPodsForService:
         label_idx = second_call_args.index("-l") + 1
         assert second_call_args[label_idx] == "app=myapp,tier=frontend"
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_knative_external_name_service(self, mock_run: MagicMock):
         """Test Knative ExternalName service uses different label selector."""
-        service_output = {
-            "spec": {
-                "type": "ExternalName"
-            }
-        }
+        service_output = {"spec": {"type": "ExternalName"}}
 
         pods_output: dict[str, list[dict[str, object]]] = {"items": []}
 
         mock_run.side_effect = [
             MagicMock(stdout=json.dumps(service_output), returncode=0, stderr=""),
-            MagicMock(stdout=json.dumps(pods_output), returncode=0, stderr="")
+            MagicMock(stdout=json.dumps(pods_output), returncode=0, stderr=""),
         ]
 
         get_pods_for_service(namespace="default", service="knative-service")
@@ -205,13 +192,15 @@ class TestGetPodsForService:
         second_call_args = mock_run.call_args_list[1][0][0]
         assert "-l" in second_call_args
         label_idx = second_call_args.index("-l") + 1
-        assert second_call_args[label_idx] == "serving.knative.dev/service=knative-service"
+        assert (
+            second_call_args[label_idx] == "serving.knative.dev/service=knative-service"
+        )
 
 
 class TestListPythonProcessesWithDetails:
     """Tests for list_python_processes_with_details - ps aux parsing."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_parses_ps_aux_output(self, mock_run: MagicMock):
         """Test that ps aux output is parsed correctly."""
         ps_output = """USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
@@ -242,7 +231,7 @@ root       123  0.0  0.0   5678  1234 ?        R    10:30   0:00 ps aux"""
         assert processes[1].mem_percent == 2.3
         assert "gunicorn" in processes[1].command
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_handles_no_python_processes(self, mock_run: MagicMock):
         """Test that empty list is returned when no Python processes found."""
         ps_output = """USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
@@ -269,7 +258,7 @@ root        42  0.0  0.0   5678  1234 ?        R    10:30   0:00 ps aux"""
 class TestExecCommandInPod:
     """Tests for exec_command_in_pod."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_successful_command_execution(self, mock_run: MagicMock):
         """Test that successful command execution returns stdout."""
         mock_result = MagicMock()
@@ -288,7 +277,7 @@ class TestExecCommandInPod:
         assert call_args[:5] == ["kubectl", "exec", "test-pod", "-n", "default"]
         assert call_args[5:] == ["--", "echo", "hello"]
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_failed_command_raises_error(self, mock_run: MagicMock):
         """Test that failed command raises CalledProcessError."""
         mock_result = MagicMock()
@@ -306,7 +295,7 @@ class TestExecCommandInPod:
 class TestCopyToPod:
     """Tests for copy_to_pod."""
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_copy_to_pod_calls_kubectl_cp(self, mock_run: MagicMock):
         """Test that kubectl cp is called with correct arguments."""
         mock_result = MagicMock()
@@ -319,7 +308,8 @@ class TestCopyToPod:
         # Verify kubectl cp was called correctly
         call_args = mock_run.call_args[0][0]
         assert call_args == [
-            "kubectl", "cp",
+            "kubectl",
+            "cp",
             "/local/path/file.py",
-            "production/test-pod:/tmp/file.py"
+            "production/test-pod:/tmp/file.py",
         ]
