@@ -96,9 +96,11 @@ def inject(
         raise typer.Exit(code=1)
     pid = select_pid(processes)
 
+    # Copy the user's script into the pod
     script_basename = os.path.basename(script)
     copy_to_pod(pod, script, f"/tmp/{script_basename}")
 
+    # Copy the attacher script into the pod (used to inject and run the user's script)
     attacher_path = Path(__file__).parent / "attacher.py"
     copy_to_pod(pod, str(attacher_path), "/tmp/attacher.py")
 
@@ -115,6 +117,187 @@ def inject(
     )
 
 
+def _inject_debugpy_into_pod(pod: PodInfo, pid: int, script_path: str) -> None:
+    """Inject a debugpy script into a specific process in a pod."""
+    script_basename = os.path.basename(script_path)
+
+    # Copy the attacher script into the pod
+    attacher_path = Path(__file__).parent / "attacher.py"
+    copy_to_pod(pod, str(attacher_path), "/tmp/attacher.py")
+
+    # Copy debugpy script into the pod
+    copy_to_pod(pod, script_path, f"/tmp/{script_basename}")
+
+    print_step(
+        f"Injecting debugpy into PID [cyan bold]{pid}[/cyan bold] in pod [blue]{pod.name}[/blue]..."
+    )
+    exec_command_in_pod(
+        pod=pod,
+        command=[
+            "python3",
+            "/tmp/attacher.py",
+            "--pid",
+            str(pid),
+            "--script",
+            f"/tmp/{script_basename}",
+        ],
+    )
+    print_success(
+        f"Successfully injected debugpy into PID [cyan]{pid}[/cyan] in pod [blue]{pod.name}[/blue]"
+    )
+
+
+def _setup_port_forwarding(pod: PodInfo, port: int) -> subprocess.Popen[bytes] | None:
+    """Set up kubectl port-forwarding to the pod. Returns the process or None if failed."""
+    if not is_port_available(port):
+        typer.echo(f"⚠️ Port {port} is already in use.", err=True)
+        typer.echo(
+            f"Tip: Either kill the process using port {port} or use a different port with --port",
+            err=True,
+        )
+        typer.echo(
+            f"You can manually set up port-forwarding with:\n  kubectl port-forward {pod.name} -n {pod.namespace} {port}:{port}"
+        )
+        return None
+
+    print_step(f"Setting up port-forwarding on port [cyan]{port}[/cyan]...")
+    port_forward_proc = subprocess.Popen(
+        [
+            "kubectl",
+            "port-forward",
+            pod.name,
+            "-n",
+            pod.namespace,
+            f"{port}:{port}",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    time.sleep(2)
+
+    if port_forward_proc.poll() is None:
+        print_success(f"Port-forwarding established on port [cyan]{port}[/cyan]")
+        return port_forward_proc
+    else:
+        typer.echo("❌ Failed to establish port-forwarding.", err=True)
+        return None
+
+
+def _monitor_and_handle_reload_mode(
+    pod: PodInfo, pid: int, port: int, port_forward_proc: subprocess.Popen[bytes]
+) -> tuple[int, bool]:
+    """
+    Monitor for worker PID changes in reload mode and handle reinjection.
+    Returns (final_pid, should_break) where should_break indicates if we should exit the loop.
+    """
+    try:
+        processes = list_python_processes_with_details(pod)
+        is_reload, _ = detect_reload_mode(processes) if processes else (False, None)
+    except Exception:
+        # Pod might be slow to respond while debugger is attached, or pod died
+        # Treat as non-reload mode and just wait for port-forward to exit
+        port_forward_proc.wait()
+        return pid, False
+
+    if is_reload:
+        print_info(
+            "🔄 Reload mode detected - will auto-reinject debugpy on worker restarts"
+        )
+
+        # Monitor for worker PID changes while keeping port-forward alive
+        while port_forward_proc.poll() is None:
+            try:
+                new_pid = monitor_worker_pid(pod, pid)
+            except Exception as e:
+                # Pod might have died or become unresponsive
+                print_info(f"⚠️ Monitoring exception: {type(e).__name__}: {e}")
+                return pid, False
+
+            if new_pid is None:
+                # Pod gone or monitoring failed, break and try to reconnect
+                print_info("⚠️ monitor_worker_pid returned None, triggering reconnect")
+                return pid, False
+
+            if new_pid != pid:
+                # Worker restarted! Re-inject debugpy
+                print_step(
+                    f"🔄 Worker restarted (PID {pid} → {new_pid}), auto-reinjecting debugpy..."
+                )
+                try:
+                    reinject_script_path = prepare_debugpy_script(port=port, wait=True)
+                    reinject_basename = os.path.basename(reinject_script_path)
+                    copy_to_pod(pod, reinject_script_path, f"/tmp/{reinject_basename}")
+
+                    print_info("💡 Worker waiting for debugger - Press F5 in your editor to reconnect")
+
+                    exec_command_in_pod(
+                        pod=pod,
+                        command=[
+                            "python3",
+                            "/tmp/attacher.py",
+                            "--pid",
+                            str(new_pid),
+                            "--script",
+                            f"/tmp/{reinject_basename}",
+                        ],
+                    )
+
+                    try:
+                        os.unlink(reinject_script_path)
+                    except Exception:
+                        pass
+
+                    pid = new_pid
+                    print_success(f"✅ Debugger reconnected to new worker (PID {pid})")
+                except Exception as e:
+                    print_info(f"❌ Failed to re-inject debugpy: {e}")
+                    return pid, False
+
+            time.sleep(2)
+    else:
+        # No reload mode, just wait for port-forward to exit
+        port_forward_proc.wait()
+
+    return pid, False
+
+
+def _attempt_reconnect(
+    pod: PodInfo, service: str, namespace: str
+) -> tuple[PodInfo | None, int | None]:
+    """
+    Try to reconnect to a new pod after connection loss.
+    Returns (new_pod, new_pid) or (None, None) if failed.
+    """
+    print_step("🔄 Connection lost, attempting to reconnect...")
+    try:
+        new_pod = find_replacement_pod(pod, service, namespace)
+        if not new_pod:
+            print_info("⚠️  Could not find replacement pod, waiting...")
+            new_pod = wait_for_new_pod(service, namespace)
+
+        new_pid = get_and_select_process_handler(pod=new_pod, pid=None)
+        print_success(f"✅ Reconnected to new pod: {new_pod.name}")
+        print_info("💡 Press F5 in your editor to reconnect the debugger")
+        return new_pod, new_pid
+    except (TimeoutError, Exception) as e:
+        print_info(f"❌ Failed to reconnect: {e}")
+        return None, None
+
+
+def _cleanup_injected_files(pod: PodInfo, script_basename: str) -> None:
+    """Clean up temporary files injected into the pod."""
+    try:
+        print_step("Cleaning up injected files in the pod...", prefix="🧹")
+        exec_command_in_pod(
+            pod=pod,
+            command=["rm", "-f", f"/tmp/{script_basename}", "/tmp/attacher.py"],
+            silent_errors=True,
+        )
+    except Exception:
+        # Silently ignore cleanup errors (pod may be gone)
+        pass
+
+
 @app.command(help="Start remote debugging session in a Python process within a pod.")
 def debug(
     namespace: str = typer.Option(
@@ -124,20 +307,10 @@ def debug(
     port: int = typer.Option(
         5679, "--port", "-p", help="The local port to forward for debugging."
     ),
-    auto_forward: bool = typer.Option(
-        True,
-        "--auto-forward/--no-auto-forward",
-        help="Automatically set up port-forwarding.",
-    ),
     pid: int = typer.Option(
         None,
         "--pid",
         help="The PID of the Python process to debug. If not provided, you will be prompted to select.",
-    ),
-    auto_reconnect: bool = typer.Option(
-        True,
-        "--auto-reconnect/--no-auto-reconnect",
-        help="Automatically attempt to reconnect if the debugging session is lost.",
     ),
 ):
     pod = get_and_select_pod_handler(service=service, namespace=namespace)
@@ -147,200 +320,78 @@ def debug(
     temp_script_path = prepare_debugpy_script(port=port, wait=True)
     script_basename = os.path.basename(temp_script_path)
 
-    while True:
-        try:
-            copy_to_pod(pod, temp_script_path, f"/tmp/{script_basename}")
+    port_forward_proc = None
+    try:
+        # Main connection and injection loop
+        while True:
+            try:
+                # Inject debugpy into the target process
+                _inject_debugpy_into_pod(pod, pid, temp_script_path)
 
-            attacher_path = Path(__file__).parent / "attacher.py"
-            copy_to_pod(pod, str(attacher_path), "/tmp/attacher.py")
-
-            print_step(
-                f"Injecting debugpy into PID [cyan bold]{pid}[/cyan bold] in pod [blue]{pod.name}[/blue]..."
-            )
-            exec_command_in_pod(
-                pod=pod,
-                command=[
-                    "python3",
-                    "/tmp/attacher.py",
-                    "--pid",
-                    str(pid),
-                    "--script",
-                    f"/tmp/{script_basename}",
-                ],
-            )
-            print_success(
-                f"Successfully injected debugpy into PID [cyan]{pid}[/cyan] in pod [blue]{pod.name}[/blue]"
-            )
-
-            port_forward_proc = None
-            if auto_forward:
-                if not is_port_available(port):
-                    typer.echo(f"⚠️ Port {port} is already in use.", err=True)
-                    typer.echo(
-                        f"Tip: Either kill the process using port {port} or use a different port with --port",
-                        err=True,
-                    )
-                    typer.echo(
-                        f"You can manually set up port-forwarding with:\n  kubectl port-forward {pod.name} -n {pod.namespace} {port}:{port}"
-                    )
+                # Set up port-forwarding
+                port_forward_proc = _setup_port_forwarding(pod, port)
+                if not port_forward_proc:
                     return
-                else:
-                    print_step(
-                        f"Setting up port-forwarding on port [cyan]{port}[/cyan]..."
-                    )
-                    port_forward_proc = subprocess.Popen(
-                        [
-                            "kubectl",
-                            "port-forward",
-                            pod.name,
-                            "-n",
-                            pod.namespace,
-                            f"{port}:{port}",
-                        ],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                    )
-                    time.sleep(2)
-
-                    if port_forward_proc.poll() is None:
-                        print_success(
-                            f"Port-forwarding established on port [cyan]{port}[/cyan]"
-                        )
-                    else:
-                        typer.echo("❌ Failed to establish port-forwarding.", err=True)
-                        port_forward_proc = None
 
                 print_connection_info(port, service)
 
-            if port_forward_proc:
-                # Monitor for both port-forward exit AND worker PID changes (if --reload mode)
+                # Monitor for reload mode and handle worker restarts
                 try:
-                    # Check if we're in reload mode (uvicorn --reload creates parent + worker)
-                    processes = list_python_processes_with_details(pod)
-                    is_reload, _ = (
-                        detect_reload_mode(processes) if processes else (False, None)
+                    pid, should_break = _monitor_and_handle_reload_mode(
+                        pod, pid, port, port_forward_proc
                     )
-
-                    if is_reload:
-                        print_info(
-                            "🔄 Reload mode detected - will auto-reinject debugpy on worker restarts"
-                        )
-
-                        # Monitor for worker PID changes while keeping port-forward alive
-                        while port_forward_proc.poll() is None:
-                            new_pid = monitor_worker_pid(pod, pid)
-
-                            if new_pid is None:
-                                # Pod gone or monitoring failed, break and try to reconnect
-                                break
-                            elif new_pid != pid:
-                                # Worker restarted! Re-inject debugpy
-                                print_step(
-                                    f"🔄 Worker restarted (PID {pid} → {new_pid}), auto-reinjecting debugpy..."
-                                )
-                                try:
-                                    reinject_script_path = prepare_debugpy_script(
-                                        port=port, wait=False
-                                    )
-                                    reinject_basename = os.path.basename(
-                                        reinject_script_path
-                                    )
-                                    copy_to_pod(
-                                        pod,
-                                        reinject_script_path,
-                                        f"/tmp/{reinject_basename}",
-                                    )
-
-                                    exec_command_in_pod(
-                                        pod=pod,
-                                        command=[
-                                            "python3",
-                                            "/tmp/attacher.py",
-                                            "--pid",
-                                            str(new_pid),
-                                            "--script",
-                                            f"/tmp/{reinject_basename}",
-                                        ],
-                                    )
-
-                                    try:
-                                        os.unlink(reinject_script_path)
-                                    except Exception:
-                                        pass
-
-                                    pid = new_pid
-                                    print_success(
-                                        f"✅ Debugpy reinjected into new worker (PID {pid})"
-                                    )
-                                    print_info(
-                                        "💡 Press F5 in your editor to reconnect the debugger"
-                                    )
-                                except Exception as e:
-                                    print_info(f"❌ Failed to re-inject debugpy: {e}")
-                                    break
-
-                            time.sleep(2)
-                    else:
-                        # No reload mode, just wait for port-forward to exit
-                        port_forward_proc.wait()
-
+                    if should_break:
+                        break
                 except KeyboardInterrupt:
                     print_step("Stopping port-forwarding...")
                     port_forward_proc.terminate()
                     port_forward_proc.wait()
+                    port_forward_proc = None
                     print_info("Port-forwarding stopped.")
                     break
+                except Exception as e:
+                    print_info(f"⚠️ Unexpected error in monitoring: {type(e).__name__}: {e}")
+                    # Don't break, try to reconnect
+                    pass
 
-            # If we get here, port-forward exited (pod likely died)
-            # Clean up the old port-forward process
-            if port_forward_proc and port_forward_proc.poll() is None:
-                port_forward_proc.terminate()
-                port_forward_proc.wait()
+                # Clean up the old port-forward process
+                if port_forward_proc and port_forward_proc.poll() is None:
+                    port_forward_proc.terminate()
+                    port_forward_proc.wait()
+                    port_forward_proc = None
 
-            if not auto_reconnect:
-                break
-
-            # Try to reconnect
-            print_step("🔄 Connection lost, attempting to reconnect...")
-            try:
-                new_pod = find_replacement_pod(pod, service, namespace)
-                if not new_pod:
-                    print_info("⚠️  Could not find replacement pod, waiting...")
-                    new_pod = wait_for_new_pod(service, namespace)
+                # Attempt to reconnect to a new pod
+                new_pod, new_pid = _attempt_reconnect(pod, service, namespace)
+                if not new_pod or not new_pid:
+                    break
 
                 pod = new_pod
-                pid = get_and_select_process_handler(pod=pod, pid=None)
-                print_success(f"✅ Reconnected to new pod: {pod.name}")
-                print_info("💡 Press F5 in your editor to reconnect the debugger")
-            except (TimeoutError, Exception) as e:
-                print_info(f"❌ Failed to reconnect: {e}")
-                break
+                pid = new_pid
 
-        finally:
-            # Clean up temporary script file (only once when we exit the loop)
+            except KeyboardInterrupt:
+                # Handle Ctrl+C anywhere in the loop
+                print_step("Stopping port-forwarding...")
+                if port_forward_proc and port_forward_proc.poll() is None:
+                    port_forward_proc.terminate()
+                    port_forward_proc.wait()
+                print_info("Port-forwarding stopped.")
+                raise
+
+    finally:
+        # Cleanup after exiting the loop - ALWAYS kill port-forward
+        if port_forward_proc and port_forward_proc.poll() is None:
+            try:
+                port_forward_proc.terminate()
+                port_forward_proc.wait()
+            except Exception:
+                pass
+
+        try:
+            os.unlink(temp_script_path)
+        except Exception:
             pass
 
-    # Cleanup after exiting the loop
-    try:
-        os.unlink(temp_script_path)
-    except Exception:
-        pass
-
-    try:
-        print_step("Cleaning up injected files in the pod...", prefix="🧹")
-        exec_command_in_pod(
-            pod=pod,
-            command=[
-                "rm",
-                "-f",
-                f"/tmp/{script_basename}",
-                "/tmp/attacher.py",
-            ],
-            silent_errors=True,
-        )
-    except Exception:
-        # Silently ignore cleanup errors (pod may be gone)
-        pass
+        _cleanup_injected_files(pod, script_basename)
 
 
 if __name__ == "__main__":
