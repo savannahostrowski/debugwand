@@ -112,15 +112,15 @@ The target pod doesn't have debugpy installed. Add debugpy to your application d
 
 ## Hot-Reload Support
 
-### Seamless Debugging with `--reload`
+### Debugging with `--reload`
 
 debugwand automatically handles uvicorn's `--reload` mode:
 - Detects when your app runs with `--reload` (FastAPI, Flask, etc.)
 - Monitors for worker process restarts
 - Auto-reinjects debugpy when the worker PID changes
-- Keeps port-forward alive so VSCode stays connected
+- Keeps port-forward alive across worker restarts
 
-**You don't need to change anything** - just run your app with `--reload` and debug normally!
+**Note:** When the worker restarts, VSCode will detach (because the process dies). You'll need to press F5 to reconnect, but debugwand keeps the session alive and debugpy ready.
 
 ### How It Works
 
