@@ -82,6 +82,25 @@ This will:
 - **debugpy** installed in the container (for `debug` command)
 
 
+## Configuration
+
+### Environment Variables
+
+- **`DEBUGWAND_SIMPLE_UI`**: Set to `1` to enable simplified UI output (useful for CI/CD or Tilt)
+- **`DEBUGWAND_AUTO_SELECT_POD`**: Auto-select pod when multiple are found
+  - `newest` or `latest`: Automatically select the newest pod by creation time
+  - `true` or `1`: Same as `newest`
+  - Unset: Prompt user to select (default behavior)
+
+Example:
+```bash
+export DEBUGWAND_SIMPLE_UI=1
+export DEBUGWAND_AUTO_SELECT_POD=newest
+wand debug -n my-namespace -s my-service
+```
+
+This is especially useful for non-interactive environments like Tilt or CI/CD pipelines.
+
 ## Other notes
 
 ### Knative Services
@@ -90,7 +109,9 @@ debugwand automatically handles Knative services by detecting ExternalName servi
 
 ### Multiple Pods
 
-If a service has multiple pods, debugwand will prompt you to select one. Use the CPU/memory metrics to choose the right instance.
+If a service has multiple pods, debugwand will prompt you to select one (unless `DEBUGWAND_AUTO_SELECT_POD` is set). Use the CPU/memory metrics to choose the right instance.
+
+When `DEBUGWAND_AUTO_SELECT_POD=newest` is set, debugwand automatically selects the most recently created pod. This is useful for: **Knative deployments** with multiple revisions during rollouts, etc.
 
 ## Troubleshooting
 

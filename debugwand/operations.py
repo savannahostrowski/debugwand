@@ -1,6 +1,7 @@
 """Kubernetes and debugging operations for debugwand."""
 
 import json
+import os
 import socket
 import subprocess
 import tempfile
@@ -127,6 +128,15 @@ def select_pod(pods: list[PodInfo]) -> PodInfo:
     if len(running_pods) == 1:
         return running_pods[0]
 
+    # Auto-select newest pod if environment variable is set
+    auto_select = os.environ.get("DEBUGWAND_AUTO_SELECT_POD", "").lower()
+    if auto_select in ("newest", "latest", "true", "1"):
+        # Sort by creation_time (ISO 8601 strings sort correctly lexicographically)
+        sorted_pods = sorted(running_pods, key=lambda p: p.creation_time, reverse=True)
+        newest_pod = sorted_pods[0]
+        typer.echo(f"🎯 Auto-selected newest pod: {newest_pod.name}")
+        return newest_pod
+
     typer.echo("❔ Multiple pods found. Please select one:")
     for idx, pod in enumerate(running_pods):
         typer.echo(
@@ -210,6 +220,7 @@ def get_pods_by_label(
             node_name=item["spec"].get("nodeName", ""),
             status=item["status"]["phase"],
             labels=item["metadata"].get("labels", {}),
+            creation_time=item["metadata"].get("creationTimestamp", ""),
         )
         for item in pods_json.get("items", [])
     ]
