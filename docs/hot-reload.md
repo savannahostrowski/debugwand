@@ -67,13 +67,3 @@ Standard debugpy attach configuration works:
   ]
 }
 ```
-
-## What You Get
-
-- ✅ **Non-blocking debugging** - App continues serving requests immediately
-- ✅ Keep uvicorn `--reload` enabled for fast iteration
-- ✅ Workers restart and serve traffic without waiting for debugger
-- ✅ Debugpy automatically reinjects on worker restarts
-- ✅ Simple F5 press to connect/reconnect anytime
-- ✅ Port-forward stays alive across worker restarts
-- ✅ Auto-reconnect if entire pod restarts
