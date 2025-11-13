@@ -133,7 +133,7 @@ def _inject_debugpy_into_pod(pod: PodInfo, pid: int, script_path: str) -> None:
     print_step(
         f"Injecting debugpy into PID [cyan bold]{pid}[/cyan bold] in pod [blue]{pod.name}[/blue]..."
     )
-    # Run injection in background since it blocks waiting for debugger
+    # Run injection in background (non-blocking)
     exec_command_in_pod(
         pod=pod,
         command=[
@@ -149,8 +149,9 @@ def _inject_debugpy_into_pod(pod: PodInfo, pid: int, script_path: str) -> None:
     # Give debugpy time to start listening
     time.sleep(2)
     print_success(
-        f"Successfully injected debugpy into PID [cyan]{pid}[/cyan] in pod [blue]{pod.name}[/blue]"
+        f"Debugpy ready in PID [cyan]{pid}[/cyan] in pod [blue]{pod.name}[/blue]"
     )
+    print_info("App is running - connect your debugger anytime to hit breakpoints")
 
 
 def _setup_port_forwarding(pod: PodInfo, port: int) -> subprocess.Popen[bytes] | None:
@@ -283,11 +284,11 @@ def _monitor_and_handle_reload_mode(
                     f"Worker restarted (PID {pid} → {new_pid}), auto-reinjecting debugpy..."
                 )
                 try:
-                    reinject_script_path = prepare_debugpy_script(port=port, wait=True)
+                    reinject_script_path = prepare_debugpy_script(port=port, wait=False)
                     reinject_basename = os.path.basename(reinject_script_path)
                     copy_to_pod(pod, reinject_script_path, f"/tmp/{reinject_basename}")
 
-                    # Run injection in background since it blocks waiting for debugger
+                    # Run injection in background (non-blocking)
                     exec_command_in_pod(
                         pod=pod,
                         command=[
@@ -301,7 +302,7 @@ def _monitor_and_handle_reload_mode(
                         background=True,
                     )
 
-                    # Give debugpy more time to start listening before prompting user
+                    # Give debugpy time to start listening before prompting user
                     time.sleep(2)
 
                     try:
@@ -310,8 +311,8 @@ def _monitor_and_handle_reload_mode(
                         pass
 
                     pid = new_pid
-                    print_success(f" Debugpy reinjected into new worker (PID {pid})")
-                    print_info(" Worker ready - Press F5 in your editor to reconnect")
+                    print_success(f"Debugpy reinjected into new worker (PID {pid})")
+                    print_info("Worker is running - reconnect your debugger to continue debugging")
                 except Exception as e:
                     print_info(f" Failed to re-inject debugpy: {e}", prefix="❌")
                     return pid, False
@@ -340,7 +341,7 @@ def _attempt_reconnect(
 
         new_pid = get_and_select_process_handler(pod=new_pod, pid=None)
         print_success(f"Reconnected to new pod: {new_pod.name}")
-        print_info(" Worker ready - Press F5 in your editor to reconnect")
+        print_info("App is running - connect your debugger to continue debugging")
         return new_pod, new_pid
     except (TimeoutError, Exception) as e:
         print_info(f"Failed to reconnect: {e}", prefix="❌")
@@ -379,8 +380,8 @@ def debug(
     pod = get_and_select_pod_handler(service=service, namespace=namespace)
     pid = get_and_select_process_handler(pod=pod, pid=pid)
 
-    # Prepare debugpy script on local filesystem
-    temp_script_path = prepare_debugpy_script(port=port, wait=True)
+    # Prepare debugpy script on local filesystem (wait=False means app continues immediately)
+    temp_script_path = prepare_debugpy_script(port=port, wait=False)
     script_basename = os.path.basename(temp_script_path)
 
     port_forward_proc = None
