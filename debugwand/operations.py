@@ -128,9 +128,8 @@ def select_pod(pods: list[PodInfo]) -> PodInfo:
     if len(running_pods) == 1:
         return running_pods[0]
 
-    # Auto-select newest pod if environment variable is set
-    auto_select = os.environ.get("DEBUGWAND_AUTO_SELECT_POD", "").lower()
-    if auto_select in ("newest", "latest", "true", "1"):
+    # Auto-select newest pod if environment variable is set to "1"
+    if os.environ.get("DEBUGWAND_AUTO_SELECT_POD") == "1":
         # Sort by creation_time (ISO 8601 strings sort correctly lexicographically)
         sorted_pods = sorted(running_pods, key=lambda p: p.creation_time, reverse=True)
         newest_pod = sorted_pods[0]

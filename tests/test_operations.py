@@ -34,6 +34,7 @@ class TestGetAndSelectPod:
             node_name="node-1",
             status="Running",
             labels={"app": "test"},
+            creation_time="2025-01-01T00:00:00Z",
         )
         mock_get_pods.return_value = [pod]
         mock_select.return_value = pod
@@ -52,8 +53,22 @@ class TestGetAndSelectPod:
         self, mock_select: MagicMock, mock_get_pods: MagicMock
     ):
         """Test that select_pod is called when multiple pods exist."""
-        pod1 = PodInfo("pod-1", "default", "node-1", "Running", {"app": "test"})
-        pod2 = PodInfo("pod-2", "default", "node-2", "Running", {"app": "test"})
+        pod1 = PodInfo(
+            "pod-1",
+            "default",
+            "node-1",
+            "Running",
+            {"app": "test"},
+            "2025-01-01T00:00:00Z",
+        )
+        pod2 = PodInfo(
+            "pod-2",
+            "default",
+            "node-2",
+            "Running",
+            {"app": "test"},
+            "2025-01-01T01:00:00Z",
+        )
 
         mock_get_pods.return_value = [pod1, pod2]
         mock_select.return_value = pod1  # User selects first pod
@@ -71,7 +86,9 @@ class TestGetAndSelectProcess:
     def test_no_processes_raises_error(self, mock_list: MagicMock):
         """Test that ValueError is raised when no processes are found."""
         mock_list.return_value = []
-        pod = PodInfo("pod-1", "default", "node-1", "Running", {})
+        pod = PodInfo(
+            "pod-1", "default", "node-1", "Running", {}, "2025-01-01T00:00:00Z"
+        )
 
         with pytest.raises(ValueError, match="No Python processes found"):
             get_and_select_process(pod, None)
@@ -87,7 +104,9 @@ class TestGetAndSelectProcess:
             command="python app.py",
         )
         mock_list.return_value = [process]
-        pod = PodInfo("pod-1", "default", "node-1", "Running", {})
+        pod = PodInfo(
+            "pod-1", "default", "node-1", "Running", {}, "2025-01-01T00:00:00Z"
+        )
 
         result = get_and_select_process(pod, 1234)
 
@@ -99,7 +118,9 @@ class TestGetAndSelectProcess:
         """Test that ValueError is raised for invalid PID."""
         process = ProcessInfo(1234, "root", 0.5, 1.2, "python app.py")
         mock_list.return_value = [process]
-        pod = PodInfo("pod-1", "default", "node-1", "Running", {})
+        pod = PodInfo(
+            "pod-1", "default", "node-1", "Running", {}, "2025-01-01T00:00:00Z"
+        )
 
         with pytest.raises(ValueError, match="PID 9999 not found"):
             get_and_select_process(pod, 9999)
@@ -113,7 +134,9 @@ class TestGetAndSelectProcess:
         process = ProcessInfo(1234, "root", 0.5, 1.2, "python app.py")
         mock_list.return_value = [process]
         mock_select.return_value = 1234
-        pod = PodInfo("pod-1", "default", "node-1", "Running", {})
+        pod = PodInfo(
+            "pod-1", "default", "node-1", "Running", {}, "2025-01-01T00:00:00Z"
+        )
 
         result = get_and_select_process(pod, None)
 
@@ -189,6 +212,7 @@ class TestMonitorWorkerPid:
             node_name="node-1",
             status="Running",
             labels={"app": "test"},
+            creation_time="2025-01-01T00:00:00Z",
         )
 
         # Simulate reload mode detected but worker process not found
@@ -223,6 +247,7 @@ class TestMonitorWorkerPid:
             node_name="node-1",
             status="Running",
             labels={"app": "test"},
+            creation_time="2025-01-01T00:00:00Z",
         )
 
         new_worker = ProcessInfo(
@@ -253,6 +278,7 @@ class TestMonitorWorkerPid:
             node_name="node-1",
             status="Running",
             labels={"app": "test"},
+            creation_time="2025-01-01T00:00:00Z",
         )
 
         mock_list_procs.return_value = [
