@@ -15,4 +15,7 @@ The target pod doesn't have debugpy installed. Add debugpy to your application d
 
 **Path mappings:** Ensure your `launch.json` maps local to remote paths correctly.
 
-**Multiple pods:** If you have multiple replicas, requests may be load-balanced to a different pod than the one you're debugging. Consider scaling down to a single replica during debugging.
+**Multiple pods:** If you have multiple replicas, requests may be load-balanced to a different pod than the one you're debugging. You can:
+- Set `DEBUGWAND_AUTO_SELECT_POD=1` to automatically select the newest pod
+- Scale down to a single replica during debugging
+- Use pod selection to choose the specific pod handling your traffic
