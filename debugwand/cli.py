@@ -312,7 +312,9 @@ def _monitor_and_handle_reload_mode(
 
                     pid = new_pid
                     print_success(f"Debugpy reinjected into new worker (PID {pid})")
-                    print_info("Worker is running - reconnect your debugger to continue debugging")
+                    print_info(
+                        "Worker is running - reconnect your debugger to continue debugging"
+                    )
                 except Exception as e:
                     print_info(f" Failed to re-inject debugpy: {e}", prefix="❌")
                     return pid, False
