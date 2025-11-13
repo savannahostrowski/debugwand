@@ -1,3 +1,5 @@
+import os
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -7,6 +9,9 @@ from debugwand.types import PodInfo, ProcessInfo
 
 # Global console for UI functions
 _console = Console()
+
+# Check if we should use simple UI (e.g., when running in Tilt)
+_use_simple_ui = os.getenv("DEBUGWAND_SIMPLE_UI") == "1"
 
 
 def render_pods_table(pods: list[PodInfo]):
@@ -83,16 +88,35 @@ def render_processes_table(pod_processes: list[tuple[PodInfo, list[ProcessInfo]]
 def print_reload_mode_warning(worker_pid: int):
     """Print a formatted warning about reload mode detection."""
     _console.print()
-    _console.print(
-        Panel(
-            f"The app is running with [cyan]--reload[/cyan], which spawns worker processes.\n"
-            f"Injecting into the [green bold]WORKER[/green bold] process (PID [cyan]{worker_pid}[/cyan]).\n"
-            f"Process monitoring enabled - debugpy will auto-reinject on worker restarts.",
-            border_style="yellow",
-            title="Reload Mode",
-            expand=False,
+
+    if _use_simple_ui:
+        # Simple output for environments like Tilt
+        _console.print(
+            "[yellow]=============================== Reload Mode ===============================[/yellow]"
         )
-    )
+        _console.print(
+            "The app is running with [cyan]--reload[/cyan], which spawns worker processes."
+        )
+        _console.print(
+            f"Injecting into the [green bold]WORKER[/green bold] process (PID [cyan]{worker_pid}[/cyan])."
+        )
+        _console.print(
+            "Process monitoring enabled - debugpy will auto-reinject on worker restarts."
+        )
+        _console.print("[yellow]" + "=" * 75 + "[/yellow]")
+    else:
+        # Fancy panel for normal terminals
+        _console.print(
+            Panel(
+                f"The app is running with [cyan]--reload[/cyan], which spawns worker processes.\n"
+                f"Injecting into the [green bold]WORKER[/green bold] process (PID [cyan]{worker_pid}[/cyan]).\n"
+                f"Process monitoring enabled - debugpy will auto-reinject on worker restarts.",
+                border_style="yellow",
+                title="Reload Mode",
+                expand=False,
+            )
+        )
+
     _console.print(
         f"[green]✅[/green] Auto-selecting worker process: [cyan bold]PID {worker_pid}[/cyan bold]"
     )
@@ -116,13 +140,25 @@ def print_step(message: str, prefix: str = "🔧"):
 def print_connection_info(port: int):
     """Print formatted connection instructions with VSCode config."""
     _console.print()
-    _console.print(
-        Panel(
-            f"[green bold]🎉 Ready to Debug![/green bold]\n\n"
-            f"Connect your debugger to: [cyan bold]localhost:{port}[/cyan bold]",
-            border_style="green",
-            expand=False,
+
+    if _use_simple_ui:
+        # Simple output for environments like Tilt
+        _console.print("[green]" + "=" * 42 + "[/green]")
+        _console.print("[green bold]🎉 Ready to Debug![/green bold]")
+        _console.print()
+        _console.print(
+            f"Connect your debugger to: [cyan bold]localhost:{port}[/cyan bold]"
         )
-    )
+        _console.print("[green]" + "=" * 42 + "[/green]")
+    else:
+        # Fancy panel for normal terminals
+        _console.print(
+            Panel(
+                f"[green bold]🎉 Ready to Debug![/green bold]\n\n"
+                f"Connect your debugger to: [cyan bold]localhost:{port}[/cyan bold]",
+                border_style="green",
+                expand=False,
+            )
+        )
 
     _console.print("\n[dim]Press Ctrl+C to stop port-forwarding and exit.[/dim]\n")
