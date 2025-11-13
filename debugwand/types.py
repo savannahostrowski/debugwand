@@ -10,6 +10,7 @@ class PodInfo:
     node_name: str
     status: str
     labels: dict[str, str]
+    creation_time: str  # ISO 8601 timestamp from metadata.creationTimestamp
 
 
 @dataclass

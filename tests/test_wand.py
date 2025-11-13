@@ -36,6 +36,7 @@ class TestPodsCommand:
             node_name="node-1",
             status="Running",
             labels={"app": "test-app"},
+            creation_time="2025-01-01T00:00:00Z",
         )
 
         mock_get_pods.return_value = [mock_pod]
@@ -71,6 +72,7 @@ class TestPodsCommand:
             node_name="node-1",
             status="Running",
             labels={"app": "test-app"},
+            creation_time="2025-01-01T00:00:00Z",
         )
 
         mock_process = ProcessInfo(
@@ -148,6 +150,7 @@ class TestInjectCommand:
             node_name="node-1",
             status="Running",
             labels={"app": "test-app"},
+            creation_time="2025-01-01T00:00:00Z",
         )
 
         mock_process = ProcessInfo(
@@ -220,6 +223,7 @@ class TestDebugCommand:
             node_name="node-1",
             status="Running",
             labels={"app": "test-app"},
+            creation_time="2025-01-01T00:00:00Z",
         )
 
         mock_get_and_select_pod_handler.return_value = mock_pod

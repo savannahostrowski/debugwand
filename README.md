@@ -82,6 +82,24 @@ This will:
 - **debugpy** installed in the container (for `debug` command)
 
 
+## Configuration
+
+### Environment Variables
+
+- **`DEBUGWAND_SIMPLE_UI`**: Set to `1` to enable simplified UI output (useful for CI/CD or Tilt)
+- **`DEBUGWAND_AUTO_SELECT_POD`**: Set to `1` to automatically select the newest pod when multiple are found
+  - `1`: Auto-select newest pod by creation time
+  - `0` or unset: Prompt user to select (default behavior)
+
+Example:
+```bash
+export DEBUGWAND_SIMPLE_UI=1
+export DEBUGWAND_AUTO_SELECT_POD=1
+wand debug -n my-namespace -s my-service
+```
+
+This is especially useful for non-interactive environments like Tilt or CI/CD pipelines.
+
 ## Other notes
 
 ### Knative Services
@@ -90,106 +108,14 @@ debugwand automatically handles Knative services by detecting ExternalName servi
 
 ### Multiple Pods
 
-If a service has multiple pods, debugwand will prompt you to select one. Use the CPU/memory metrics to choose the right instance.
+If a service has multiple pods, debugwand will prompt you to select one (unless `DEBUGWAND_AUTO_SELECT_POD` is set). Use the CPU/memory metrics to choose the right instance.
 
-## Troubleshooting
+When `DEBUGWAND_AUTO_SELECT_POD=1` is set, debugwand automatically selects the most recently created pod. This is useful for **Knative deployments** with multiple revisions during rollouts, **CI/CD pipelines** that need non-interactive pod selection, and **development workflows** (like Tilt) where you typically want the newest deployment.
 
-### "No module named 'debugpy'"
+## Additional Documentation
 
-The target pod doesn't have debugpy installed. Add debugpy to your application dependencies.
-
-### Debugger won't attach
-
-1. Check port-forward is running: `lsof -i :5679` (or use https://github.com/savannahostrowski/gruyere 🤗)
-2. Check debugpy is listening: `kubectl logs <pod> | grep debugpy`
-3. Verify path mappings in `launch.json` or DAP config
-4. Check Python version compatibility (3.14+ required)
-
-### Breakpoints not hitting
-
-**Path mappings:** Ensure your `launch.json` maps local to remote paths correctly.
-
-**Multiple pods:** If you have multiple replicas, requests may be load-balanced to a different pod than the one you're debugging. Consider scaling down to a single replica during debugging.
-
-## Hot-Reload Support
-
-### Debugging with `--reload`
-
-debugwand automatically handles uvicorn's `--reload` mode:
-- Detects when your app runs with `--reload` (FastAPI, Flask, etc.)
-- Monitors for worker process restarts
-- Auto-reinjects debugpy when the worker PID changes
-- Keeps port-forward alive across worker restarts
-
-**Note:** When the worker restarts, VSCode will detach (because the process dies). You'll need to press F5 to reconnect. The worker continues serving requests immediately - debugpy is ready and waiting for you to reconnect.
-
-### How It Works
-
-1. **Start debugging:**
-   ```bash
-   wand debug -n my-namespace -s my-service
-   ```
-
-2. **Connect VSCode** (press F5)
-
-3. **Edit your code:**
-   - Tilt syncs files to pod
-   - uvicorn detects changes and restarts worker
-   - debugwand detects PID change and reinjects debugpy
-   - Press F5 in VSCode to reconnect
-   - Your breakpoints keep working!
-
-### Example Session
-
-```bash
-$ wand debug -n fastapicloud -s api
-🔧 Injecting debugpy into PID 82 in pod api-00002...
-✅ Debugpy ready in PID 82 in pod api-00002
-ℹ️  App is running - connect your debugger anytime to hit breakpoints
-🔄 Reload mode detected - will auto-reinject debugpy on worker restarts
-🚀 Port-forwarding established on port 5679
-
-# Your app is serving requests! Connect when ready.
-
-# You edit a file...
-🔄 Worker restarted (PID 82 → 125), auto-reinjecting debugpy...
-✅ Debugpy reinjected into new worker (PID 125)
-ℹ️  Worker is running - reconnect your debugger to continue debugging
-
-# Worker keeps serving requests! Reconnect when ready.
-# Keep coding! The cycle repeats
-```
-
-### VSCode Configuration
-
-Standard debugpy attach configuration works:
-```json
-{
-  "name": "Attach to Kubernetes Pod",
-  "type": "debugpy",
-  "request": "attach",
-  "connect": {
-    "host": "localhost",
-    "port": 5679
-  },
-  "pathMappings": [
-    {
-      "localRoot": "${workspaceFolder}",
-      "remoteRoot": "/app"
-    }
-  ]
-}
-```
-
-### What You Get
-
-- ✅ **Non-blocking debugging** - App continues serving requests immediately
-- ✅ Keep uvicorn `--reload` enabled for fast iteration
-- ✅ Workers restart and serve traffic without waiting for debugger
-- ✅ Debugpy automatically reinjects on worker restarts
-- ✅ Simple F5 press to connect/reconnect anytime
-- ✅ Port-forward stays alive across worker restarts
-- ✅ Auto-reconnect if entire pod restarts
+- **[Hot-Reload Support](docs/hot-reload.md)** - Debugging with uvicorn `--reload` mode
+- **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
 
 ## Architecture
 

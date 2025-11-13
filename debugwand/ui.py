@@ -20,9 +20,18 @@ def render_pods_table(pods: list[PodInfo]):
     table.add_column("Pod Name", style="cyan", no_wrap=True)
     table.add_column("Namespace", style="magenta")
     table.add_column("Status", style="green")
+    table.add_column("Created", style="yellow", no_wrap=True)
 
     for pod in pods:
-        table.add_row(pod.name, pod.namespace, pod.status)
+        # Format timestamp to be more readable (e.g., "2025-11-13 19:29")
+        # Remove seconds and timezone for compactness
+        created_display = pod.creation_time.replace("T", " ").replace("Z", "")
+        if "." in created_display:
+            # Remove microseconds if present
+            created_display = created_display.split(".")[0]
+        # Remove seconds for more compact display
+        created_display = ":".join(created_display.split(":")[:2])
+        table.add_row(pod.name, pod.namespace, pod.status, created_display)
 
     _console.print(table)
 

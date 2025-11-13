@@ -29,7 +29,14 @@ class TestSelectPod:
 
     def test_single_pod_auto_selected(self):
         """Test that a single pod is automatically selected without prompting."""
-        pod = PodInfo("pod-1", "default", "node-1", "Running", {"app": "test"})
+        pod = PodInfo(
+            "pod-1",
+            "default",
+            "node-1",
+            "Running",
+            {"app": "test"},
+            "2025-01-01T00:00:00Z",
+        )
 
         result = select_pod([pod])
 
@@ -68,6 +75,7 @@ class TestGetPodsByLabel:
                         "name": "app-pod-1",
                         "namespace": "production",
                         "labels": {"app": "myapp", "version": "v1"},
+                        "creationTimestamp": "2025-01-01T10:00:00Z",
                     },
                     "spec": {"nodeName": "node-1"},
                     "status": {"phase": "Running"},
@@ -77,6 +85,7 @@ class TestGetPodsByLabel:
                         "name": "app-pod-2",
                         "namespace": "production",
                         "labels": {"app": "myapp", "version": "v2"},
+                        "creationTimestamp": "2025-01-01T11:00:00Z",
                     },
                     "spec": {"nodeName": "node-2"},
                     "status": {"phase": "Pending"},
@@ -123,6 +132,7 @@ class TestGetPodsByLabel:
                         "name": "pending-pod",
                         "namespace": "default",
                         "labels": {},
+                        "creationTimestamp": "2025-01-01T00:00:00Z",
                     },
                     "spec": {},  # No nodeName - pod not scheduled yet
                     "status": {"phase": "Pending"},
@@ -156,7 +166,12 @@ class TestGetPodsForService:
         pods_output: dict[str, list[dict[str, object]]] = {
             "items": [
                 {
-                    "metadata": {"name": "pod-1", "namespace": "default", "labels": {}},
+                    "metadata": {
+                        "name": "pod-1",
+                        "namespace": "default",
+                        "labels": {},
+                        "creationTimestamp": "2025-01-01T00:00:00Z",
+                    },
                     "spec": {"nodeName": "node-1"},
                     "status": {"phase": "Running"},
                 }
@@ -216,7 +231,9 @@ root       123  0.0  0.0   5678  1234 ?        R    10:30   0:00 ps aux"""
         mock_result.stdout = ps_output
         mock_run.return_value = mock_result
 
-        pod = PodInfo("test-pod", "default", "node-1", "Running", {})
+        pod = PodInfo(
+            "test-pod", "default", "node-1", "Running", {}, "2025-01-01T00:00:00Z"
+        )
         processes = list_python_processes_with_details(pod)
 
         assert len(processes) == 2  # Only Python processes, not 'ps aux'
@@ -246,14 +263,18 @@ root        42  0.0  0.0   5678  1234 ?        R    10:30   0:00 ps aux"""
         mock_result.stdout = ps_output
         mock_run.return_value = mock_result
 
-        pod = PodInfo("test-pod", "default", "node-1", "Running", {})
+        pod = PodInfo(
+            "test-pod", "default", "node-1", "Running", {}, "2025-01-01T00:00:00Z"
+        )
         processes = list_python_processes_with_details(pod)
 
         assert processes == []
 
     def test_raises_error_for_non_running_pod(self):
         """Test that ValueError is raised for non-running pods."""
-        pod = PodInfo("pending-pod", "default", "node-1", "Pending", {})
+        pod = PodInfo(
+            "pending-pod", "default", "node-1", "Pending", {}, "2025-01-01T00:00:00Z"
+        )
 
         with pytest.raises(ValueError, match="not running"):
             list_python_processes_with_details(pod)
@@ -271,7 +292,9 @@ class TestExecCommandInPod:
         mock_result.returncode = 0
         mock_run.return_value = mock_result
 
-        pod = PodInfo("test-pod", "default", "node-1", "Running", {})
+        pod = PodInfo(
+            "test-pod", "default", "node-1", "Running", {}, "2025-01-01T00:00:00Z"
+        )
         output = exec_command_in_pod(pod, ["echo", "hello"])
 
         assert output == "Command output\n"
@@ -290,7 +313,9 @@ class TestExecCommandInPod:
         mock_result.returncode = 127
         mock_run.return_value = mock_result
 
-        pod = PodInfo("test-pod", "default", "node-1", "Running", {})
+        pod = PodInfo(
+            "test-pod", "default", "node-1", "Running", {}, "2025-01-01T00:00:00Z"
+        )
 
         with pytest.raises(Exception):  # CalledProcessError
             exec_command_in_pod(pod, ["nonexistent-command"])
@@ -306,7 +331,9 @@ class TestCopyToPod:
         mock_result.returncode = 0
         mock_run.return_value = mock_result
 
-        pod = PodInfo("test-pod", "production", "node-1", "Running", {})
+        pod = PodInfo(
+            "test-pod", "production", "node-1", "Running", {}, "2025-01-01T00:00:00Z"
+        )
         copy_to_pod(pod, "/local/path/file.py", "/tmp/file.py")
 
         # Verify kubectl cp was called correctly
