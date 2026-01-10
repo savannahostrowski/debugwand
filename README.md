@@ -1,6 +1,6 @@
 # debugwand 🪄
 
-A zero-preparation remote debugger for Python applications running in local Kubernetes clusters.
+A zero-preparation remote debugger for Python applications running in Kubernetes clusters or Docker containers.
 
 *Made possible by the Python 3.14 [remote debugging attachment protocol](https://docs.python.org/3/howto/remote_debugging.html) and [debugpy](https://github.com/microsoft/debugpy)*
 
@@ -11,148 +11,97 @@ A zero-preparation remote debugger for Python applications running in local Kube
 - **Zero-preparation debugging** - No code changes or restarts required
 - **Full breakpoint debugging** - Using `debugpy`
 - **Kubernetes-native** - Handles pod discovery, service routing, and Knative
+- **Docker container support** - Debug Python processes in local containers
 - **Process selection** - Interactive selection with CPU/memory metrics
-- **Script execution** - Run arbitrary Python code in remote processes
-
-## Quick Start
-
-### 1. List pods and processes
-
-```bash
-# List pods for a specific service
-wand pods -n my-namespace -s my-service
-
-# Show Python processes in pods
-wand pods -n my-namespace -s my-service --with-pids
-```
-
-### 2. Debug a live process
-
-To start a debugging session, run:
-```bash
-wand debug -n my-namespace -s my-service
-```
-
-This will:
-1. Find pods for the service
-2. Let you select which process to debug
-3. Inject `debugpy` into the process (non-blocking - app continues running)
-4. Automatically port-forward to your local machine
-5. Your app continues serving requests - connect your debugger anytime!
-
-![](debug.png)
-
-### 3. Connect your editor
-
-**VSCode**: Press F5 or use this launch configuration:
-
-```json
-{
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Attach to Kubernetes Pod",
-      "type": "debugpy",
-      "request": "attach",
-      "connect": {
-        "host": "localhost",
-        "port": 5679
-      },
-      "pathMappings": [
-        {
-          "localRoot": "${workspaceFolder}",
-          "remoteRoot": "/app"
-        }
-      ]
-    }
-  ]
-}
-```
-
-**Neovim/Other DAP clients**: Connect to `localhost:5679`
 
 ## Requirements
 
-### Local Machine (debugwand CLI)
-- **Python 3.14+** (uses `sys.remote_exec()`)
-- **kubectl** configured with cluster access
+- **Python 3.14+** on both local machine and target
+- **debugpy** installed in the target container
+- **kubectl** (for Kubernetes) or **Docker CLI** (for containers)
+- **SYS_PTRACE capability** - on Linux/containers (see [troubleshooting](docs/troubleshooting.md))
 
-### Target Pods
-- **Python 3.14+** runtime
-- **debugpy** installed in the container (for `debug` command)
+## Quick Start
 
+### Kubernetes
 
-## Configuration
-
-### Environment Variables
-
-- **`DEBUGWAND_SIMPLE_UI`**: Set to `1` to enable simplified UI output (useful for CI/CD or Tilt)
-- **`DEBUGWAND_AUTO_SELECT_POD`**: Set to `1` to automatically select the newest pod when multiple are found
-  - `1`: Auto-select newest pod by creation time
-  - `0` or unset: Prompt user to select (default behavior)
-
-Example:
 ```bash
-export DEBUGWAND_SIMPLE_UI=1
-export DEBUGWAND_AUTO_SELECT_POD=1
+# List pods and Python processes
+wand pods -n my-namespace -s my-service --with-pids
+
+# Debug a live process
 wand debug -n my-namespace -s my-service
 ```
 
-This is especially useful for non-interactive environments like Tilt or CI/CD pipelines.
+### Docker
 
-## Other notes
+```bash
+# Debug a container (must have SYS_PTRACE capability)
+wand debug --container my-container
+```
 
-### Knative Services
+> Containers must be started with `--cap-add=SYS_PTRACE` and `-p 5679:5679`
 
-debugwand automatically handles Knative services by detecting ExternalName services and finding pods via `serving.knative.dev/service` labels.
+### Connect your editor
 
-### Multiple Pods
+**VSCode** launch configuration:
 
-If a service has multiple pods, debugwand will prompt you to select one (unless `DEBUGWAND_AUTO_SELECT_POD` is set). Use the CPU/memory metrics to choose the right instance.
+```json
+{
+  "name": "Attach to debugwand",
+  "type": "debugpy",
+  "request": "attach",
+  "connect": { "host": "localhost", "port": 5679 },
+  "pathMappings": [{ "localRoot": "${workspaceFolder}", "remoteRoot": "/app" }]
+}
+```
 
-When `DEBUGWAND_AUTO_SELECT_POD=1` is set, debugwand automatically selects the most recently created pod. This is useful for **Knative deployments** with multiple revisions during rollouts, **CI/CD pipelines** that need non-interactive pod selection, and **development workflows** (like Tilt) where you typically want the newest deployment.
+**Other DAP clients**: Connect to `localhost:5679`
+
+## Configuration
+
+| Environment Variable | Description |
+|---------------------|-------------|
+| `DEBUGWAND_SIMPLE_UI` | Set to `1` for simplified output (useful for Tilt/CI) |
+| `DEBUGWAND_AUTO_SELECT_POD` | Set to `1` to auto-select the newest pod |
 
 ## Additional Documentation
 
 - **[Hot-Reload Support](docs/hot-reload.md)** - Debugging with uvicorn `--reload` mode
 - **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
 
-## Architecture
+## How it works
 
 ```
-┌─────────────────┐                    ┌──────────────────┐
-│  Local Machine  │                    │  Kubernetes Pod  │
-│                 │                    │                  │
-│  debugwand CLI  │◄───── kubectl ────►│   Python App     │
-└────────┬────────┘                    └────────┬─────────┘
+┌─────────────────┐                    ┌──────────────────────────┐
+│  Local Machine  │                    │   Pod / Container        │
+│                 │                    │                          │
+│  debugwand CLI  │◄─ kubectl/docker ─►│   Python App             │
+└────────┬────────┘                    └────────┬─────────────────┘
          │                                      │
-         │ 1. Discover pods                     │
+         │ 1. Discover pods (k8s only)          │
          ├─────────────────────────────────────►│
          │                                      │
          │ 2. List Python processes             │
-         │◄─────────────────────────────────────┤
-         │                                      │
-         │ 3. Select process (auto-detect       │
-         │    reload mode and choose worker)    │
-         │                                      │
-         │4. Inject `debugpy script via         │
-         │  (`sys.remote_exec()`)               │
-         │                                      │
          ├─────────────────────────────────────►│
          │                                      │
-         │                 5. `debugpy.listen()`│
-         │                    ┌─────────────────┤
-         │                    │                 │
-         │ 6. Port-forward    │                 │
-         │◄───────────────────┼────────────────►│
-         │    localhost:5679  │                 │
-         │                    └─────────────────┤
+         │ 3. Select process                    │
          │                                      │
+         │ 4. Inject debugpy via                │
+         │    sys.remote_exec()                 │
+         ├─────────────────────────────────────►│
+         │                                      │
+         │                    5. debugpy.listen()
+         │                       ┌──────────────┤
+         │ 6. Port-forward (k8s) │              │
+         │    or exposed port    │              │
+         │◄──────────────────────┼─────────────►│
+         │    localhost:5679     │              │
+         │                       └──────────────┤
          │ 7. Connect editor                    │
          ├──────────────────────────────────────┤
          │         Debugging Session            │
          │◄────────────────────────────────────►│
-         │                                      │
 ```
 
 ## License
