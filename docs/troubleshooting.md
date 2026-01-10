@@ -1,5 +1,24 @@
 # Troubleshooting
 
+## "Permission denied" / "CAP_SYS_PTRACE"
+
+On Linux and in containers, you need the `CAP_SYS_PTRACE` capability to attach to a running process. See the [Python remote debugging docs](https://docs.python.org/3/howto/remote_debugging.html) for details.
+
+**Kubernetes:** Add to your deployment:
+```yaml
+securityContext:
+  capabilities:
+    add:
+      - SYS_PTRACE
+```
+
+**Docker:** Run with `--cap-add=SYS_PTRACE`:
+```bash
+docker run --cap-add=SYS_PTRACE ...
+```
+
+**Note:** macOS may require running with elevated privileges (`sudo`) instead of `CAP_SYS_PTRACE`.
+
 ## "No module named 'debugpy'"
 
 The target pod doesn't have debugpy installed. Add debugpy to your application dependencies.
@@ -10,6 +29,8 @@ The target pod doesn't have debugpy installed. Add debugpy to your application d
 2. Check debugpy is listening: `kubectl logs <pod> | grep debugpy`
 3. Verify path mappings in `launch.json` or DAP config
 4. Check Python version compatibility (3.14+ required)
+
+
 
 ## Breakpoints not hitting
 
