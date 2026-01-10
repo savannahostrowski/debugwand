@@ -6,24 +6,14 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from debugwand import container as container_ops
+from debugwand import kubernetes as k8s
 from debugwand.operations import (
-    copy_to_pod,
     detect_reload_mode,
-    exec_command_in_pod,
     find_process_using_port,
-    find_replacement_pod,
-    get_and_select_pod_handler,
-    get_and_select_process_handler,
-    get_pods_for_service_handler,
     is_port_available,
     kill_process,
-    list_all_processes_with_details_handler,
-    list_python_processes_with_details,
-    monitor_worker_pid,
     prepare_debugpy_script,
-    select_pid,
-    select_pod,
-    wait_for_new_pod,
 )
 from debugwand.types import PodInfo, ProcessInfo
 from debugwand.ui import (
@@ -55,14 +45,12 @@ def pods(
     ),
 ):
     if with_pids:
-        pod_list = get_pods_for_service_handler(namespace, service)
+        pod_list = k8s.get_pods_for_service_handler(namespace, service)
 
         # Collect all pod-process pairs
         pod_processes: list[tuple[PodInfo, list[ProcessInfo]]] = []
         for pod in pod_list:
-            processes: list[ProcessInfo] | None = (
-                list_all_processes_with_details_handler(pod)
-            )
+            processes: list[ProcessInfo] | None = k8s.list_python_processes_handler(pod)
             if processes:
                 pod_processes.append((pod, processes))
 
@@ -73,7 +61,7 @@ def pods(
             typer.echo("❌ No running pods with Python processes found.", err=True)
             raise typer.Exit(code=1)
     else:
-        pod_list = get_pods_for_service_handler(namespace, service)
+        pod_list = k8s.get_pods_for_service_handler(namespace, service)
 
         render_pods_table(pod_list)
 
@@ -87,26 +75,26 @@ def inject(
     script: str = typer.Option(..., "--script", "-c", help="The script to execute."),
 ):
     typer.echo(f"Executing script '{script}' in the selected pod...")
-    pod_list = get_pods_for_service_handler(namespace, service)
-    pod = select_pod(pod_list)
+    pod_list = k8s.get_pods_for_service_handler(namespace, service)
+    pod = k8s.select_pod(pod_list)
 
-    processes: list[ProcessInfo] | None = list_all_processes_with_details_handler(pod)
+    processes: list[ProcessInfo] | None = k8s.list_python_processes_handler(pod)
     if not processes:
         typer.echo(
             "❌ No running Python processes found in the selected pod.", err=True
         )
         raise typer.Exit(code=1)
-    pid = select_pid(processes)
+    pid = k8s.get_and_select_process(pod, None)
 
     # Copy the user's script into the pod
     script_basename = os.path.basename(script)
-    copy_to_pod(pod, script, f"/tmp/{script_basename}")
+    k8s.copy_to_pod(pod, script, f"/tmp/{script_basename}")
 
     # Copy the attacher script into the pod (used to inject and run the user's script)
     attacher_path = Path(__file__).parent / "attacher.py"
-    copy_to_pod(pod, str(attacher_path), "/tmp/attacher.py")
+    k8s.copy_to_pod(pod, str(attacher_path), "/tmp/attacher.py")
 
-    exec_command_in_pod(
+    k8s.exec_command(
         pod=pod,
         command=[
             "python3",
@@ -125,17 +113,17 @@ def _inject_debugpy_into_pod(pod: PodInfo, pid: int, script_path: str) -> None:
 
     # Copy the attacher script into the pod
     attacher_path = Path(__file__).parent / "attacher.py"
-    copy_to_pod(pod, str(attacher_path), "/tmp/attacher.py")
+    k8s.copy_to_pod(pod, str(attacher_path), "/tmp/attacher.py")
 
     # Copy debugpy script into the pod
-    copy_to_pod(pod, script_path, f"/tmp/{script_basename}")
+    k8s.copy_to_pod(pod, script_path, f"/tmp/{script_basename}")
 
     print_step(
         f"Injecting debugpy into PID [cyan bold]{pid}[/cyan bold] in pod [blue]{pod.name}[/blue]..."
     )
     # Run injection synchronously to capture errors
     try:
-        exec_command_in_pod(
+        k8s.exec_command(
             pod=pod,
             command=[
                 "python3",
@@ -274,7 +262,7 @@ def _monitor_and_handle_reload_mode(
     Returns (final_pid, should_break) where should_break indicates if we should exit the loop.
     """
     try:
-        processes = list_python_processes_with_details(pod)
+        processes = k8s.list_python_processes(pod)
         is_reload, _ = detect_reload_mode(processes) if processes else (False, None)
     except Exception:
         # Pod might be slow to respond while debugger is attached, or pod died
@@ -290,7 +278,7 @@ def _monitor_and_handle_reload_mode(
         # Monitor for worker PID changes while keeping port-forward alive
         while port_forward_proc.poll() is None:
             try:
-                new_pid = monitor_worker_pid(pod, pid)
+                new_pid = k8s.monitor_worker_pid(pod, pid)
             except Exception as e:
                 # Pod might have died or become unresponsive
                 print_info(
@@ -313,10 +301,12 @@ def _monitor_and_handle_reload_mode(
                 try:
                     reinject_script_path = prepare_debugpy_script(port=port, wait=False)
                     reinject_basename = os.path.basename(reinject_script_path)
-                    copy_to_pod(pod, reinject_script_path, f"/tmp/{reinject_basename}")
+                    k8s.copy_to_pod(
+                        pod, reinject_script_path, f"/tmp/{reinject_basename}"
+                    )
 
                     # Run injection in background (non-blocking)
-                    exec_command_in_pod(
+                    k8s.exec_command(
                         pod=pod,
                         command=[
                             "python3",
@@ -363,12 +353,12 @@ def _attempt_reconnect(
     """
     print_step("Connection lost, attempting to reconnect...")
     try:
-        new_pod = find_replacement_pod(pod, service, namespace)
+        new_pod = k8s.find_replacement_pod(pod, service, namespace)
         if not new_pod:
             print_info("Could not find replacement pod, waiting...")
-            new_pod = wait_for_new_pod(service, namespace)
+            new_pod = k8s.wait_for_new_pod(service, namespace)
 
-        new_pid = get_and_select_process_handler(pod=new_pod, pid=None)
+        new_pid = k8s.get_and_select_process_handler(pod=new_pod, pid=None)
         print_success(f"Reconnected to new pod: {new_pod.name}")
         print_info("App is running - connect your debugger to continue debugging")
         return new_pod, new_pid
@@ -381,7 +371,7 @@ def _cleanup_injected_files(pod: PodInfo, script_basename: str) -> None:
     """Clean up temporary files injected into the pod."""
     try:
         print_step("Cleaning up injected files in the pod...", prefix="🧹")
-        exec_command_in_pod(
+        k8s.exec_command(
             pod=pod,
             command=["rm", "-f", f"/tmp/{script_basename}", "/tmp/attacher.py"],
             silent_errors=True,
@@ -391,23 +381,67 @@ def _cleanup_injected_files(pod: PodInfo, script_basename: str) -> None:
         pass
 
 
-@app.command(help="Start remote debugging session in a Python process within a pod.")
+@app.command(
+    help="Start remote debugging session in a Python process within a pod or container."
+)
 def debug(
     namespace: str = typer.Option(
-        ..., "--namespace", "-n", help="The namespace to use."
+        None,
+        "--namespace",
+        "-n",
+        help="The Kubernetes namespace to use.",
+        rich_help_panel="Kubernetes Options",
     ),
-    service: str = typer.Option(..., "--service", "-s", help="The service to use."),
+    service: str = typer.Option(
+        None,
+        "--service",
+        "-s",
+        help="The Kubernetes service to use.",
+        rich_help_panel="Kubernetes Options",
+    ),
+    container: str = typer.Option(
+        None,
+        "--container",
+        "-c",
+        help="Container name or ID to debug.",
+        rich_help_panel="Container Options",
+    ),
     port: int = typer.Option(
-        5679, "--port", "-p", help="The local port to forward for debugging."
+        5679,
+        "--port",
+        "-p",
+        help="The port for debugpy to listen on.",
+        rich_help_panel="Common Options",
     ),
     pid: int = typer.Option(
         None,
         "--pid",
         help="The PID of the Python process to debug. If not provided, you will be prompted to select.",
+        rich_help_panel="Common Options",
     ),
 ):
-    pod = get_and_select_pod_handler(service=service, namespace=namespace)
-    pid = get_and_select_process_handler(pod=pod, pid=pid)
+    if container:
+        # Container mode - error if k8s options are also provided
+        if namespace or service:
+            typer.echo(
+                "❌ Cannot use --namespace or --service with --container.",
+                err=True,
+            )
+            raise typer.Exit(1)
+        container_ops.debug(container, port, pid)
+        return
+    elif namespace and service:
+        # Kubernetes mode
+        pass
+    else:
+        typer.echo(
+            "❌ Either --container or both --namespace and --service are required.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    pod = k8s.get_and_select_pod_handler(service=service, namespace=namespace)
+    pid = k8s.get_and_select_process_handler(pod=pod, pid=pid)
 
     # Prepare debugpy script on local filesystem (wait=False means app continues immediately)
     temp_script_path = prepare_debugpy_script(port=port, wait=False)

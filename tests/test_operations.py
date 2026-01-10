@@ -2,19 +2,19 @@ from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from debugwand.operations import (
+from debugwand.kubernetes import (
     get_and_select_pod,
     get_and_select_process,
     monitor_worker_pid,
-    prepare_debugpy_script,
 )
+from debugwand.operations import prepare_debugpy_script
 from debugwand.types import PodInfo, ProcessInfo
 
 
 class TestGetAndSelectPod:
     """Tests for get_and_select_pod function."""
 
-    @patch("debugwand.operations.get_pods_for_service")
+    @patch("debugwand.kubernetes.get_pods_for_service")
     def test_no_pods_raises_error(self, mock_get_pods: MagicMock):
         """Test that ValueError is raised when no pods are found."""
         mock_get_pods.return_value = []
@@ -22,8 +22,8 @@ class TestGetAndSelectPod:
         with pytest.raises(ValueError, match="No pods found matching the criteria"):
             get_and_select_pod(service="test-service", namespace="default")
 
-    @patch("debugwand.operations.get_pods_for_service")
-    @patch("debugwand.operations.select_pod")
+    @patch("debugwand.kubernetes.get_pods_for_service")
+    @patch("debugwand.kubernetes.select_pod")
     def test_single_pod_returned(
         self, mock_select: MagicMock, mock_get_pods: MagicMock
     ):
@@ -47,8 +47,8 @@ class TestGetAndSelectPod:
         )
         mock_select.assert_called_once_with([pod])
 
-    @patch("debugwand.operations.get_pods_for_service")
-    @patch("debugwand.operations.select_pod")
+    @patch("debugwand.kubernetes.get_pods_for_service")
+    @patch("debugwand.kubernetes.select_pod")
     def test_multiple_pods_calls_select(
         self, mock_select: MagicMock, mock_get_pods: MagicMock
     ):
@@ -82,7 +82,7 @@ class TestGetAndSelectPod:
 class TestGetAndSelectProcess:
     """Tests for get_and_select_process function."""
 
-    @patch("debugwand.operations.list_python_processes_with_details")
+    @patch("debugwand.kubernetes.list_python_processes")
     def test_no_processes_raises_error(self, mock_list: MagicMock):
         """Test that ValueError is raised when no processes are found."""
         mock_list.return_value = []
@@ -93,7 +93,7 @@ class TestGetAndSelectProcess:
         with pytest.raises(ValueError, match="No Python processes found"):
             get_and_select_process(pod, None)
 
-    @patch("debugwand.operations.list_python_processes_with_details")
+    @patch("debugwand.kubernetes.list_python_processes")
     def test_valid_pid_returned(self, mock_list: MagicMock):
         """Test that a valid PID is accepted and returned."""
         process = ProcessInfo(
@@ -113,7 +113,7 @@ class TestGetAndSelectProcess:
         assert result == 1234
         mock_list.assert_called_once_with(pod)
 
-    @patch("debugwand.operations.list_python_processes_with_details")
+    @patch("debugwand.kubernetes.list_python_processes")
     def test_invalid_pid_raises_error(self, mock_list: MagicMock):
         """Test that ValueError is raised for invalid PID."""
         process = ProcessInfo(1234, "root", 0.5, 1.2, "python app.py")
@@ -125,7 +125,7 @@ class TestGetAndSelectProcess:
         with pytest.raises(ValueError, match="PID 9999 not found"):
             get_and_select_process(pod, 9999)
 
-    @patch("debugwand.operations.list_python_processes_with_details")
+    @patch("debugwand.kubernetes.list_python_processes")
     @patch("debugwand.operations.select_pid")
     def test_no_pid_provided_calls_select(
         self, mock_select: MagicMock, mock_list: MagicMock
@@ -196,7 +196,7 @@ class TestPrepareDebugpyScript:
 class TestMonitorWorkerPid:
     """Tests for monitor_worker_pid function."""
 
-    @patch("debugwand.operations.list_python_processes_with_details")
+    @patch("debugwand.kubernetes.list_python_processes")
     @patch("debugwand.operations.detect_reload_mode")
     def test_keeps_monitoring_when_worker_not_found(
         self, mock_detect: MagicMock, mock_list_procs: MagicMock
@@ -235,7 +235,7 @@ class TestMonitorWorkerPid:
         mock_list_procs.assert_called_once_with(pod)
         mock_detect.assert_called_once()
 
-    @patch("debugwand.operations.list_python_processes_with_details")
+    @patch("debugwand.kubernetes.list_python_processes")
     @patch("debugwand.operations.detect_reload_mode")
     def test_detects_pid_change(
         self, mock_detect: MagicMock, mock_list_procs: MagicMock
@@ -266,7 +266,7 @@ class TestMonitorWorkerPid:
         # Should return new PID
         assert result == 456
 
-    @patch("debugwand.operations.list_python_processes_with_details")
+    @patch("debugwand.kubernetes.list_python_processes")
     @patch("debugwand.operations.detect_reload_mode")
     def test_stops_monitoring_when_not_reload_mode(
         self, mock_detect: MagicMock, mock_list_procs: MagicMock

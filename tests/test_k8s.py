@@ -6,15 +6,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 import typer
 
-from debugwand.operations import (
+from debugwand.kubernetes import (
     copy_to_pod,
-    exec_command_in_pod,
+    exec_command,
     get_pods_by_label,
     get_pods_for_service,
-    list_python_processes_with_details,
-    select_pid,
+    list_python_processes,
     select_pod,
 )
+from debugwand.operations import select_pid
 from debugwand.types import PodInfo, ProcessInfo
 
 
@@ -216,8 +216,8 @@ class TestGetPodsForService:
         )
 
 
-class TestListPythonProcessesWithDetails:
-    """Tests for list_python_processes_with_details - ps aux parsing."""
+class TestListPythonProcesses:
+    """Tests for list_python_processes - ps aux parsing."""
 
     @patch("subprocess.run")
     def test_parses_ps_aux_output(self, mock_run: MagicMock):
@@ -234,7 +234,7 @@ root       123  0.0  0.0   5678  1234 ?        R    10:30   0:00 ps aux"""
         pod = PodInfo(
             "test-pod", "default", "node-1", "Running", {}, "2025-01-01T00:00:00Z"
         )
-        processes = list_python_processes_with_details(pod)
+        processes = list_python_processes(pod)
 
         assert len(processes) == 2  # Only Python processes, not 'ps aux'
 
@@ -266,7 +266,7 @@ root        42  0.0  0.0   5678  1234 ?        R    10:30   0:00 ps aux"""
         pod = PodInfo(
             "test-pod", "default", "node-1", "Running", {}, "2025-01-01T00:00:00Z"
         )
-        processes = list_python_processes_with_details(pod)
+        processes = list_python_processes(pod)
 
         assert processes == []
 
@@ -277,11 +277,11 @@ root        42  0.0  0.0   5678  1234 ?        R    10:30   0:00 ps aux"""
         )
 
         with pytest.raises(ValueError, match="not running"):
-            list_python_processes_with_details(pod)
+            list_python_processes(pod)
 
 
-class TestExecCommandInPod:
-    """Tests for exec_command_in_pod."""
+class TestExecCommand:
+    """Tests for exec_command."""
 
     @patch("subprocess.run")
     def test_successful_command_execution(self, mock_run: MagicMock):
@@ -295,7 +295,7 @@ class TestExecCommandInPod:
         pod = PodInfo(
             "test-pod", "default", "node-1", "Running", {}, "2025-01-01T00:00:00Z"
         )
-        output = exec_command_in_pod(pod, ["echo", "hello"])
+        output = exec_command(pod, ["echo", "hello"])
 
         assert output == "Command output\n"
 
@@ -318,7 +318,7 @@ class TestExecCommandInPod:
         )
 
         with pytest.raises(Exception):  # CalledProcessError
-            exec_command_in_pod(pod, ["nonexistent-command"])
+            exec_command(pod, ["nonexistent-command"])
 
 
 class TestCopyToPod:
