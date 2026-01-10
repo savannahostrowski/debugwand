@@ -135,7 +135,7 @@ def _inject_debugpy_into_pod(pod: PodInfo, pid: int, script_path: str) -> None:
     )
     # Run injection synchronously to capture errors
     try:
-        result = exec_command_in_pod(
+        exec_command_in_pod(
             pod=pod,
             command=[
                 "python3",
@@ -150,36 +150,27 @@ def _inject_debugpy_into_pod(pod: PodInfo, pid: int, script_path: str) -> None:
     except subprocess.CalledProcessError as e:
         # Check for permission error
         if "CAP_SYS_PTRACE" in e.stdout or "Permission denied" in str(e.stderr):
-            typer.echo(
-                "\n❌ Permission denied: Cannot attach to process.", err=True
-            )
+            typer.echo("\n❌ Permission denied: Cannot attach to process.", err=True)
             typer.echo(
                 "   On Linux/containers, you need CAP_SYS_PTRACE capability.", err=True
             )
-            typer.echo(
-                "   Add this to your Kubernetes deployment:", err=True
-            )
-            typer.echo(
-                "     securityContext:", err=True
-            )
-            typer.echo(
-                "       capabilities:", err=True
-            )
-            typer.echo(
-                "         add:", err=True
-            )
-            typer.echo(
-                "           - SYS_PTRACE", err=True
-            )
+            typer.echo("   Add this to your Kubernetes deployment:", err=True)
+            typer.echo("     securityContext:", err=True)
+            typer.echo("       capabilities:", err=True)
+            typer.echo("         add:", err=True)
+            typer.echo("           - SYS_PTRACE", err=True)
             typer.echo(
                 "\n   Or for Docker: docker run --cap-add=SYS_PTRACE ...", err=True
             )
             typer.echo(
-                "\n   See: https://docs.python.org/3/howto/remote_debugging.html", err=True
+                "\n   See: https://docs.python.org/3/howto/remote_debugging.html",
+                err=True,
             )
             raise typer.Exit(1)
         else:
-            typer.echo(f"\n❌ Failed to inject debugpy: {e.stderr or e.stdout}", err=True)
+            typer.echo(
+                f"\n❌ Failed to inject debugpy: {e.stderr or e.stdout}", err=True
+            )
             raise typer.Exit(1)
 
     # Give debugpy time to start listening
