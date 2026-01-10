@@ -26,9 +26,9 @@ def main():
 
     try:
         # Use sys.remote_exec to inject the script into the target process
-        # New in Python 3.14, no stubs yet
+        # New in Python 3.14!
         # https://docs.python.org/3/library/sys.html#sys.remote_exec
-        sys.remote_exec(args.pid, args.script)  # type: ignore
+        sys.remote_exec(args.pid, args.script)
 
     except AttributeError as e:
         print(f"ERROR: sys.remote_exec not available: {e}")

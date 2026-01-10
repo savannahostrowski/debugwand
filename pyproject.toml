@@ -52,7 +52,7 @@ path = "debugwand/__init__.py"
 [tool.pyright]
 include = ["debugwand"]
 typeCheckingMode = "strict"
-pythonVersion = "3.13"
+pythonVersion = "3.14"
 reportMissingTypeStubs = false
 
 [tool.ruff]
