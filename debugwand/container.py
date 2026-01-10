@@ -203,7 +203,9 @@ def debug(container: str, port: int, pid: int | None) -> None:
 
                     if new_pid is None:
                         # Container gone or no longer in reload mode
-                        print_info("Container no longer available or reload mode ended.")
+                        print_info(
+                            "Container no longer available or reload mode ended."
+                        )
                         break
 
                     if new_pid != pid:
