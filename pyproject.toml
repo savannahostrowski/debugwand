@@ -5,11 +5,8 @@ description = "A CLI for connecting your debugger to live Python processes runni
 readme = "README.md"
 requires-python = ">=3.14.0"
 dependencies = [
-    "dataclasses>=0.8",
     "debugpy>=1.8.17",
-    "pyright>=1.1.407",
     "rich>=13.9.4",
-    "ruff>=0.14.4",
     "typer>=0.20.0",
 ]
 keywords=["debugging", "debugger", "kubernetes"]
@@ -76,5 +73,6 @@ package = true
 [dependency-groups]
 dev = [
     "pytest>=8.4.2",
+    "pyright>=1.1.407",
     "ruff>=0.14.4",
 ]
