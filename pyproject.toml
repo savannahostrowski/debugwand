@@ -1,7 +1,7 @@
 [project]
 name = "debugwand"
 dynamic=["version"]
-description = "A CLI for connecting your debugger to live Python processes running in Kubernetes pods."
+description = "A zero-preparation remote debugger for Python applications running in Kubernetes clusters or Docker containers."
 readme = "README.md"
 requires-python = ">=3.14.0"
 dependencies = [
