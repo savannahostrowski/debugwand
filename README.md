@@ -73,11 +73,11 @@ wand debug --container my-container
 ## How it works
 
 ```
-┌─────────────────┐                    ┌──────────────────────────┐
-│  Local Machine  │                    │   Pod / Container        │
-│                 │                    │                          │
-│  debugwand CLI  │◄─ kubectl/docker ─►│   Python App             │
-└────────┬────────┘                    └────────┬─────────────────┘
+┌─────────────────┐                    ┌────────────────────┐
+│  Local Machine  │                    │   Pod / Container  │
+│                 │                    │                    │
+│  debugwand CLI  │◄─ kubectl/docker ─►│   Python App       │
+└────────┬────────┘                    └────────┬───────────┘
          │                                      │
          │ 1. Discover pods (k8s only)          │
          ├─────────────────────────────────────►│
