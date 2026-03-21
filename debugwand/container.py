@@ -1,6 +1,7 @@
 """Debugging support for containers."""
 
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -10,6 +11,28 @@ import typer
 from debugwand.operations import detect_reload_mode, prepare_debugpy_script, select_pid
 from debugwand.types import ProcessInfo
 from debugwand.ui import print_connection_info, print_info, print_step, print_success
+
+_runtime: str = "docker"
+
+
+def detect_runtime() -> str:
+    """Auto-detect container runtime (podman or docker)."""
+    if shutil.which("podman"):
+        return "podman"
+    if shutil.which("docker"):
+        return "docker"
+    return "docker"
+
+
+def set_runtime(runtime: str) -> None:
+    """Set the container runtime command (e.g. 'docker' or 'podman')."""
+    global _runtime
+    _runtime = runtime
+
+
+def get_runtime() -> str:
+    """Get the current container runtime command."""
+    return _runtime
 
 
 def monitor_worker_pid(container: str, initial_pid: int) -> int | None:
@@ -46,7 +69,7 @@ def monitor_worker_pid(container: str, initial_pid: int) -> int | None:
 
 def list_python_processes(container: str) -> list[ProcessInfo]:
     """List Python processes in a container."""
-    cmd = ["docker", "exec", container, "ps", "aux"]
+    cmd = [get_runtime(), "exec", container, "ps", "aux"]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     processes: list[ProcessInfo] = []
     for line in result.stdout.splitlines():
@@ -69,14 +92,14 @@ def exec_command(
     container: str, command: list[str], capture_output: bool = True
 ) -> subprocess.CompletedProcess[str]:
     """Execute a command in a container."""
-    cmd = ["docker", "exec", container] + command
+    cmd = [get_runtime(), "exec", container] + command
     return subprocess.run(cmd, capture_output=capture_output, text=True)
 
 
 def copy_file(container: str, local_path: str, remote_path: str) -> None:
     """Copy a file into a container."""
     subprocess.run(
-        ["docker", "cp", local_path, f"{container}:{remote_path}"],
+        [get_runtime(), "cp", local_path, f"{container}:{remote_path}"],
         check=True,
         capture_output=True,
     )
@@ -117,12 +140,13 @@ def inject_debugpy(container: str, pid: int, script_path: str) -> None:
             typer.echo(
                 "   On Linux/containers, you need CAP_SYS_PTRACE capability.", err=True
             )
+            runtime = get_runtime()
             typer.echo(
-                "   Run your container with: docker run --cap-add=SYS_PTRACE ...",
+                f"   Run your container with: {runtime} run --cap-add=SYS_PTRACE ...",
                 err=True,
             )
             typer.echo(
-                "   Or in docker-compose.yml:",
+                f"   Or in {'docker-compose.yml' if runtime == 'docker' else 'a compose file'}:",
                 err=True,
             )
             typer.echo("     cap_add:", err=True)

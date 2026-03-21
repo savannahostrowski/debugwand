@@ -7,7 +7,13 @@ from typer import Exit
 from typer.testing import CliRunner
 
 from debugwand.cli import app
-from debugwand.container import list_python_processes, monitor_worker_pid
+from debugwand.container import (
+    detect_runtime,
+    get_runtime,
+    list_python_processes,
+    monitor_worker_pid,
+    set_runtime,
+)
 from debugwand.operations import detect_reload_mode
 from debugwand.types import PodInfo, ProcessInfo
 
@@ -301,7 +307,7 @@ root        10  0.1  0.5  65432  6543 ?        S    10:01   0:00 python worker.p
         assert processes[1].command == "python worker.py"
 
         mock_run.assert_called_once_with(
-            ["docker", "exec", "test-container", "ps", "aux"],
+            [get_runtime(), "exec", "test-container", "ps", "aux"],
             capture_output=True,
             text=True,
             check=True,
@@ -533,3 +539,92 @@ class TestContainerReloadMode:
         result = monitor_worker_pid("test-container", 10)
 
         assert result is None
+
+
+class TestContainerRuntime:
+    """Tests for container runtime detection and selection."""
+
+    def test_set_and_get_runtime(self):
+        """Test setting and getting the container runtime."""
+        original = get_runtime()
+        try:
+            set_runtime("podman")
+            assert get_runtime() == "podman"
+
+            set_runtime("docker")
+            assert get_runtime() == "docker"
+        finally:
+            set_runtime(original)
+
+    @patch("debugwand.container.shutil.which")
+    def test_detect_runtime_podman_available(self, mock_which: MagicMock):
+        """Test that podman is preferred when available."""
+        mock_which.side_effect = lambda cmd: "/usr/bin/podman" if cmd == "podman" else None
+
+        assert detect_runtime() == "podman"
+
+    @patch("debugwand.container.shutil.which")
+    def test_detect_runtime_docker_only(self, mock_which: MagicMock):
+        """Test fallback to docker when podman is not available."""
+        mock_which.side_effect = lambda cmd: "/usr/bin/docker" if cmd == "docker" else None
+
+        assert detect_runtime() == "docker"
+
+    @patch("debugwand.container.shutil.which")
+    def test_detect_runtime_neither_available(self, mock_which: MagicMock):
+        """Test fallback to docker when neither is available."""
+        mock_which.return_value = None
+
+        assert detect_runtime() == "docker"
+
+    @patch("debugwand.container.subprocess.run")
+    def test_list_processes_uses_configured_runtime(self, mock_run: MagicMock):
+        """Test that list_python_processes uses the configured runtime."""
+        original = get_runtime()
+        try:
+            set_runtime("podman")
+            mock_run.return_value = MagicMock(
+                stdout="""USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+root         1  0.5  1.2 123456 12345 ?        Ss   10:00   0:01 python app.py
+""",
+                returncode=0,
+            )
+
+            processes = list_python_processes("test-container")
+
+            assert len(processes) == 1
+            mock_run.assert_called_once_with(
+                ["podman", "exec", "test-container", "ps", "aux"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        finally:
+            set_runtime(original)
+
+    @patch("debugwand.container.detect_runtime", return_value="podman")
+    @patch("debugwand.container.list_python_processes")
+    def test_debug_cli_with_runtime_flag(
+        self, mock_list_procs: MagicMock, mock_detect: MagicMock
+    ):
+        """Test debug --container --runtime podman sets runtime correctly."""
+        mock_list_procs.return_value = []
+
+        runner.invoke(
+            app, ["debug", "--container", "test-container", "--runtime", "podman"]
+        )
+
+        assert get_runtime() == "podman"
+
+    @patch("debugwand.container.detect_runtime", return_value="podman")
+    @patch("debugwand.container.list_python_processes")
+    def test_debug_cli_auto_detects_runtime(
+        self, mock_list_procs: MagicMock, mock_detect: MagicMock
+    ):
+        """Test debug --container auto-detects runtime when not specified."""
+        mock_list_procs.return_value = []
+
+        runner.invoke(app, ["debug", "--container", "test-container"])
+
+        mock_detect.assert_called_once()
+        assert get_runtime() == "podman"
