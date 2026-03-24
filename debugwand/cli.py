@@ -406,13 +406,6 @@ def debug(
         help="Container name or ID to debug.",
         rich_help_panel="Container Options",
     ),
-    runtime: str = typer.Option(
-        None,
-        "--runtime",
-        "-r",
-        help="Container runtime to use: 'docker' or 'podman'. Auto-detected if not specified.",
-        rich_help_panel="Container Options",
-    ),
     port: int = typer.Option(
         5679,
         "--port",
@@ -435,12 +428,8 @@ def debug(
                 err=True,
             )
             raise typer.Exit(1)
-        # Set container runtime
-        if runtime:
-            container_ops.set_runtime(runtime)
-        else:
-            container_ops.set_runtime(container_ops.detect_runtime())
-        container_ops.debug(container, port, pid)
+        runtime = container_ops.detect_runtime()
+        container_ops.debug(runtime, container, port, pid)
         return
     elif namespace and service:
         # Kubernetes mode
