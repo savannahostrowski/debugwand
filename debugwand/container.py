@@ -35,16 +35,22 @@ def monitor_worker_pid(runtime: str, container: str, initial_pid: int) -> int | 
 
         is_reload, worker_proc = detect_reload_mode(processes)
         if not is_reload:
+            # No longer in reload mode, stop monitoring
             return None
 
         if not worker_proc:
+            # Worker process temporarily not found (might be frozen at breakpoint,
+            # or in transition during restart). Keep monitoring.
             return initial_pid
 
         if worker_proc.pid != initial_pid:
+            # Worker PID changed! Return new PID
             return worker_proc.pid
 
+        # PID hasn't changed yet
         return initial_pid
     except Exception:
+        # Container might be gone or other error, stop monitoring
         return None
 
 
