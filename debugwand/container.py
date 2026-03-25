@@ -175,8 +175,10 @@ def debug(runtime: str, container: str, port: int, pid: int | None) -> None:
             pid = processes[0].pid
             print_info(f"Auto-selecting only Python process: PID {pid}")
         else:
+            # Let user select
             pid = select_pid(processes)
     else:
+        # Verify PID exists
         if not any(p.pid == pid for p in processes):
             typer.echo(f"❌ PID {pid} not found in container.", err=True)
             raise typer.Exit(1)
@@ -212,12 +214,14 @@ def debug(runtime: str, container: str, port: int, pid: int | None) -> None:
                         break
 
                     if new_pid is None:
+                        # Container gone or no longer in reload mode
                         print_info(
                             "Container no longer available or reload mode ended."
                         )
                         break
 
                     if new_pid != pid:
+                        # Worker restarted! Re-inject debugpy
                         print_step(
                             f"Worker restarted (PID {pid} → {new_pid}), auto-reinjecting debugpy..."
                         )
