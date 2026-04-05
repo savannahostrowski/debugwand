@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.4
+    rev: v0.15.9
     hooks:
       # Run the linter
       - id: ruff
@@ -18,11 +18,11 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
-        stages: [commit]
-      - id: pyright
-        name: pyright
-        entry: uv run pyright debugwand/
+        stages: [pre-commit]
+      - id: ty
+        name: ty
+        entry: uv run ty check debugwand/
         language: system
         pass_filenames: false
         types: [python]
-        stages: [commit]
+        stages: [pre-commit]
