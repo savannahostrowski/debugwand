@@ -59,9 +59,9 @@ def find_process_using_port(port: int) -> tuple[int, str] | None:
                         if ps_result.returncode == 0 and ps_result.stdout.strip():
                             return pid, ps_result.stdout.strip()
                         return pid, command
-                    except (ValueError, IndexError):
+                    except ValueError, IndexError:
                         pass
-    except (FileNotFoundError, ValueError):
+    except FileNotFoundError, ValueError:
         pass
 
     # Fallback: try netstat (Windows and some Linux)
@@ -85,7 +85,7 @@ def find_process_using_port(port: int) -> tuple[int, str] | None:
                         command = task_result.stdout.split(",")[0].strip('"')
                         return pid, command
                     return pid, ""
-    except (FileNotFoundError, ValueError):
+    except FileNotFoundError, ValueError:
         pass
 
     return None
@@ -96,12 +96,12 @@ def kill_process(pid: int) -> bool:
     try:
         subprocess.run(["kill", str(pid)], check=True)
         return True
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except FileNotFoundError, subprocess.CalledProcessError:
         # Try Windows taskkill
         try:
             subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=True)
             return True
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        except FileNotFoundError, subprocess.CalledProcessError:
             return False
 
 

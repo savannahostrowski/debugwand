@@ -17,7 +17,7 @@ on:
       - '.github/workflows/typecheck.yml'
 
 jobs:
-  pyright:
+  ty:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -35,5 +35,5 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-groups
 
-      - name: Run Pyright
-        run: uv run pyright
+      - name: Run ty
+        run: uv run ty check
