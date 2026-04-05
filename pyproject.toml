@@ -49,11 +49,11 @@ exclude = [
 [tool.hatch.version]
 path = "debugwand/__init__.py"
 
-[tool.pyright]
+[tool.ty.environment]
+python-version = "3.14"
+
+[tool.ty.src]
 include = ["debugwand"]
-typeCheckingMode = "strict"
-pythonVersion = "3.14"
-reportMissingTypeStubs = false
 
 [tool.ruff]
 fix = true
@@ -73,6 +73,6 @@ package = true
 [dependency-groups]
 dev = [
     "pytest>=8.4.2",
-    "pyright>=1.1.407",
-    "ruff>=0.14.4",
+    "ty>=0.0.28",
+    "ruff>=0.15.9",
 ]
