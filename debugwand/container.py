@@ -19,7 +19,7 @@ def detect_runtime() -> str:
         return "podman"
     if shutil.which("docker"):
         return "docker"
-    return "docker"
+    raise RuntimeError("No container runtime found. Install docker or podman.")
 
 
 def monitor_worker_pid(runtime: str, container: str, initial_pid: int) -> int | None:
@@ -133,7 +133,7 @@ def inject_debugpy(runtime: str, container: str, pid: int, script_path: str) -> 
                 err=True,
             )
             typer.echo(
-                f"   Or in {'docker-compose.yml' if runtime == 'docker' else 'a compose file'}:",
+                f"   Or in {'docker-compose.yml' if runtime == 'docker' else 'podman-compose.yml'}:",
                 err=True,
             )
             typer.echo("     cap_add:", err=True)
