@@ -1,6 +1,7 @@
 import os
 import subprocess
 import tempfile
+import unittest
 from unittest.mock import MagicMock, patch
 
 from typer import Exit
@@ -539,7 +540,7 @@ class TestContainerReloadMode:
         assert result is None
 
 
-class TestContainerRuntime:
+class TestContainerRuntime(unittest.TestCase):
     """Tests for container runtime detection."""
 
     @patch("debugwand.container.shutil.which")
@@ -558,7 +559,8 @@ class TestContainerRuntime:
 
     @patch("debugwand.container.shutil.which")
     def test_detect_runtime_neither_available(self, mock_which: MagicMock):
-        """Test fallback to docker when neither is available."""
+        """Test RuntimeError when neither runtime is available."""
         mock_which.return_value = None
 
-        assert detect_runtime() == "docker"
+        with self.assertRaises(RuntimeError):
+            detect_runtime()
