@@ -229,7 +229,9 @@ def debug(runtime: str, container: str, port: int, pid: int | None) -> None:
                             reinject_script_path = prepare_debugpy_script(
                                 port=port, wait=False
                             )
-                            inject_debugpy(runtime, container, new_pid, reinject_script_path)
+                            inject_debugpy(
+                                runtime, container, new_pid, reinject_script_path
+                            )
                             try:
                                 os.unlink(reinject_script_path)
                             except Exception:
