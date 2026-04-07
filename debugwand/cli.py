@@ -428,7 +428,8 @@ def debug(
                 err=True,
             )
             raise typer.Exit(1)
-        container_ops.debug(container, port, pid)
+        runtime = container_ops.detect_runtime()
+        container_ops.debug(runtime, container, port, pid)
         return
     elif namespace and service:
         # Kubernetes mode

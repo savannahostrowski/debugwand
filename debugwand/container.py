@@ -1,6 +1,7 @@
 """Debugging support for containers."""
 
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -12,14 +13,23 @@ from debugwand.types import ProcessInfo
 from debugwand.ui import print_connection_info, print_info, print_step, print_success
 
 
-def monitor_worker_pid(container: str, initial_pid: int) -> int | None:
+def detect_runtime() -> str:
+    """Auto-detect container runtime (podman or docker)."""
+    if shutil.which("podman"):
+        return "podman"
+    if shutil.which("docker"):
+        return "docker"
+    raise RuntimeError("No container runtime found. Install docker or podman.")
+
+
+def monitor_worker_pid(runtime: str, container: str, initial_pid: int) -> int | None:
     """Monitor for worker PID changes in a container.
     Returns None if monitoring should stop (e.g., container gone or error).
     Returns initial_pid if no change detected yet.
     Returns new_pid if worker restarted.
     """
     try:
-        processes = list_python_processes(container)
+        processes = list_python_processes(runtime, container)
         if not processes:
             return None
 
@@ -44,9 +54,9 @@ def monitor_worker_pid(container: str, initial_pid: int) -> int | None:
         return None
 
 
-def list_python_processes(container: str) -> list[ProcessInfo]:
+def list_python_processes(runtime: str, container: str) -> list[ProcessInfo]:
     """List Python processes in a container."""
-    cmd = ["docker", "exec", container, "ps", "aux"]
+    cmd = [runtime, "exec", container, "ps", "aux"]
     result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     processes: list[ProcessInfo] = []
     for line in result.stdout.splitlines():
@@ -66,32 +76,32 @@ def list_python_processes(container: str) -> list[ProcessInfo]:
 
 
 def exec_command(
-    container: str, command: list[str], capture_output: bool = True
+    runtime: str, container: str, command: list[str], capture_output: bool = True
 ) -> subprocess.CompletedProcess[str]:
     """Execute a command in a container."""
-    cmd = ["docker", "exec", container] + command
+    cmd = [runtime, "exec", container] + command
     return subprocess.run(cmd, capture_output=capture_output, text=True)
 
 
-def copy_file(container: str, local_path: str, remote_path: str) -> None:
+def copy_file(runtime: str, container: str, local_path: str, remote_path: str) -> None:
     """Copy a file into a container."""
     subprocess.run(
-        ["docker", "cp", local_path, f"{container}:{remote_path}"],
+        [runtime, "cp", local_path, f"{container}:{remote_path}"],
         check=True,
         capture_output=True,
     )
 
 
-def inject_debugpy(container: str, pid: int, script_path: str) -> None:
+def inject_debugpy(runtime: str, container: str, pid: int, script_path: str) -> None:
     """Inject debugpy into a process in a container."""
     script_basename = os.path.basename(script_path)
 
     # Copy the attacher script into the container
     attacher_path = Path(__file__).parent / "attacher.py"
-    copy_file(container, str(attacher_path), "/tmp/attacher.py")
+    copy_file(runtime, container, str(attacher_path), "/tmp/attacher.py")
 
     # Copy debugpy script into the container
-    copy_file(container, script_path, f"/tmp/{script_basename}")
+    copy_file(runtime, container, script_path, f"/tmp/{script_basename}")
 
     print_step(
         f"Injecting debugpy into PID [cyan bold]{pid}[/cyan bold] in container [blue]{container}[/blue]..."
@@ -99,6 +109,7 @@ def inject_debugpy(container: str, pid: int, script_path: str) -> None:
 
     # Run injection synchronously to capture errors
     result = exec_command(
+        runtime,
         container,
         [
             "python3",
@@ -118,11 +129,11 @@ def inject_debugpy(container: str, pid: int, script_path: str) -> None:
                 "   On Linux/containers, you need CAP_SYS_PTRACE capability.", err=True
             )
             typer.echo(
-                "   Run your container with: docker run --cap-add=SYS_PTRACE ...",
+                f"   Run your container with: {runtime} run --cap-add=SYS_PTRACE ...",
                 err=True,
             )
             typer.echo(
-                "   Or in docker-compose.yml:",
+                f"   Or in {'docker-compose.yml' if runtime == 'docker' else 'podman-compose.yml'}:",
                 err=True,
             )
             typer.echo("     cap_add:", err=True)
@@ -144,11 +155,12 @@ def inject_debugpy(container: str, pid: int, script_path: str) -> None:
     print_info("App is running - connect your debugger anytime to hit breakpoints")
 
 
-def debug(container: str, port: int, pid: int | None) -> None:
+def debug(runtime: str, container: str, port: int, pid: int | None) -> None:
     """Debug a Python process in a container."""
+
     # List Python processes in the container
     try:
-        processes = list_python_processes(container)
+        processes = list_python_processes(runtime, container)
     except subprocess.CalledProcessError as e:
         typer.echo(f"❌ Failed to list processes in container: {e.stderr}", err=True)
         raise typer.Exit(1)
@@ -176,7 +188,7 @@ def debug(container: str, port: int, pid: int | None) -> None:
 
     try:
         # Inject debugpy
-        inject_debugpy(container, pid, temp_script_path)
+        inject_debugpy(runtime, container, pid, temp_script_path)
 
         print_connection_info(port)
         print_info(
@@ -193,7 +205,7 @@ def debug(container: str, port: int, pid: int | None) -> None:
 
                 while True:
                     try:
-                        new_pid = monitor_worker_pid(container, pid)
+                        new_pid = monitor_worker_pid(runtime, container, pid)
                     except Exception as e:
                         print_info(
                             f"Monitoring exception: {type(e).__name__}: {e}",
@@ -217,7 +229,9 @@ def debug(container: str, port: int, pid: int | None) -> None:
                             reinject_script_path = prepare_debugpy_script(
                                 port=port, wait=False
                             )
-                            inject_debugpy(container, new_pid, reinject_script_path)
+                            inject_debugpy(
+                                runtime, container, new_pid, reinject_script_path
+                            )
                             try:
                                 os.unlink(reinject_script_path)
                             except Exception:

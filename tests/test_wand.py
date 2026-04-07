@@ -1,13 +1,18 @@
 import os
 import subprocess
 import tempfile
+import unittest
 from unittest.mock import MagicMock, patch
 
 from typer import Exit
 from typer.testing import CliRunner
 
 from debugwand.cli import app
-from debugwand.container import list_python_processes, monitor_worker_pid
+from debugwand.container import (
+    detect_runtime,
+    list_python_processes,
+    monitor_worker_pid,
+)
 from debugwand.operations import detect_reload_mode
 from debugwand.types import PodInfo, ProcessInfo
 
@@ -292,7 +297,7 @@ root        10  0.1  0.5  65432  6543 ?        S    10:01   0:00 python worker.p
             returncode=0,
         )
 
-        processes = list_python_processes("test-container")
+        processes = list_python_processes("docker", "test-container")
 
         assert len(processes) == 2
         assert processes[0].pid == 1
@@ -317,7 +322,7 @@ root         1  0.5  1.2 123456 12345 ?        Ss   10:00   0:01 nginx
             returncode=0,
         )
 
-        processes = list_python_processes("test-container")
+        processes = list_python_processes("docker", "test-container")
         assert len(processes) == 0
 
     @patch("debugwand.container.list_python_processes")
@@ -373,8 +378,8 @@ root         1  0.5  1.2 123456 12345 ?        Ss   10:00   0:01 nginx
         # Should have called inject with PID 1
         mock_inject.assert_called_once()
         call_args = mock_inject.call_args
-        assert call_args[0][0] == "test-container"
-        assert call_args[0][1] == 1
+        assert call_args[0][1] == "test-container"
+        assert call_args[0][2] == 1
 
     @patch("debugwand.container.list_python_processes")
     def test_debug_container_container_not_found(self, mock_list_procs: MagicMock):
@@ -471,7 +476,7 @@ class TestContainerReloadMode:
             ),
         ]
 
-        result = monitor_worker_pid("test-container", 10)
+        result = monitor_worker_pid("docker", "test-container", 10)
 
         assert result == 10
 
@@ -495,7 +500,7 @@ class TestContainerReloadMode:
             ),
         ]
 
-        result = monitor_worker_pid("test-container", 10)
+        result = monitor_worker_pid("docker", "test-container", 10)
 
         assert result == 20
 
@@ -504,7 +509,7 @@ class TestContainerReloadMode:
         """Test monitoring returns None when container is gone."""
         mock_list_procs.return_value = []
 
-        result = monitor_worker_pid("test-container", 10)
+        result = monitor_worker_pid("docker", "test-container", 10)
 
         assert result is None
 
@@ -521,7 +526,7 @@ class TestContainerReloadMode:
             ),
         ]
 
-        result = monitor_worker_pid("test-container", 10)
+        result = monitor_worker_pid("docker", "test-container", 10)
 
         assert result is None
 
@@ -530,6 +535,32 @@ class TestContainerReloadMode:
         """Test monitoring returns None on exception."""
         mock_list_procs.side_effect = subprocess.CalledProcessError(1, "docker exec")
 
-        result = monitor_worker_pid("test-container", 10)
+        result = monitor_worker_pid("docker", "test-container", 10)
 
         assert result is None
+
+
+class TestContainerRuntime(unittest.TestCase):
+    """Tests for container runtime detection."""
+
+    @patch("debugwand.container.shutil.which")
+    def test_detect_runtime_podman_available(self, mock_which: MagicMock):
+        """Test that podman is preferred when available."""
+        mock_which.side_effect = lambda cmd: "/usr/bin/podman" if cmd == "podman" else None
+
+        assert detect_runtime() == "podman"
+
+    @patch("debugwand.container.shutil.which")
+    def test_detect_runtime_docker_only(self, mock_which: MagicMock):
+        """Test fallback to docker when podman is not available."""
+        mock_which.side_effect = lambda cmd: "/usr/bin/docker" if cmd == "docker" else None
+
+        assert detect_runtime() == "docker"
+
+    @patch("debugwand.container.shutil.which")
+    def test_detect_runtime_neither_available(self, mock_which: MagicMock):
+        """Test RuntimeError when neither runtime is available."""
+        mock_which.return_value = None
+
+        with self.assertRaises(RuntimeError):
+            detect_runtime()
